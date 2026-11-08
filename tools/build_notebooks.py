@@ -230,6 +230,107 @@ plt.tight_layout(); plt.show()
     md(r"""
 In **scenario 2**, the cheap hours are 0–2 and 5. The cRTN melts both heats at high power in the first three hours (1.5 h each, so two heats in 3 h) for **\$400**. The RTN can only start and finish tasks on slot boundaries: a 1.5 h melt is rounded up to 2 slots, so the second heat spills into an expensive hour and the cost rises to **\$466.67**. In the paper, this rounding error grows with the number of stages.
 
+**Inside the two models.** The figure below follows the illustration in the thesis (Ch. 2, Figs. "Scheduling results of cRTN" and "Rounding error in the RTN model"). The RTN marks the furnace as busy for whole slots. The cRTN tracks the *progress* of the current heat, which rises from 0 to 1 and resets when the heat is output, so a heat can finish in the middle of a slot.
+"""),
+    code(r"""
+import pyomo.environ as pyo
+from indflex.models import crtn_progress, heat_schedule
+
+price = scenarios["scenario 2"]
+m_rtn, m_crtn = fx.build_rtn(small, price, 2), fx.build_crtn(small, price, 2)
+fx.solve(m_rtn); fx.solve(m_crtn)
+
+fig, axes = plt.subplots(2, 1, figsize=(9, 5), sharex=True)
+for ax in axes:  # price background
+    ax2 = ax.twinx(); ax2.fill_between(range(7), np.append(price, price[-1]), step="post", color="grey", alpha=0.15)
+    ax2.set_ylim(0, 220); ax2.set_ylabel("price ($/MWh)", color="grey")
+
+# RTN: melting status of each heat, whole slots only
+for h in range(2):
+    status = [pyo.value(m_rtn.S[h, t]) for t in range(6)]
+    axes[0].step(range(7), status + [status[-1]], where="post", lw=2.5, label=f"heat {h + 1}")
+axes[0].set(ylabel="melting\n(RTN status)", ylim=(-0.1, 1.3), title=f"RTN: ${fx.solve(m_rtn).cost:,.2f}")
+axes[0].legend(fontsize=8, loc="upper right")
+
+# cRTN: melting progress of the current heat
+t, prog = crtn_progress(m_crtn, stage=0)
+axes[1].plot(t, prog, color="tab:orange", lw=2.5)
+for r in heat_schedule(m_crtn).itertuples():
+    axes[1].annotate(f"heat {r.heat} done", (r.end, 1), xytext=(r.end - 0.2, 1.15), fontsize=8, ha="right")
+axes[1].set(ylabel="melting progress\n(cRTN)", ylim=(-0.1, 1.3), xlabel="Hour", title=f"cRTN: ${fx.solve(m_crtn).cost:,.2f}")
+
+# rounding error: the second heat really finishes at 3.0 h, the RTN can only finish at a slot boundary
+rtn_end = heat_schedule(m_rtn)["end"].max()
+axes[0].annotate("", xy=(rtn_end, 1.15), xytext=(3.0, 1.15), arrowprops=dict(arrowstyle="<->", color="red"))
+axes[0].text((3.0 + rtn_end) / 2, 1.2, "rounding error", color="red", ha="center", fontsize=8)
+plt.tight_layout(); plt.show()
+"""),
+    md(r"""
+**Why the cRTN does not grow with the number of heats.** The same two heats, drawn as the variables each model tracks. The RTN needs a separate melting task, transfer task and pair of material resources **for every heat** (2 heats → 8 lines). The cRTN tracks **one** melting progress, output, waiting progress and input, shared by all heats (4 lines, whatever the production target; 3 heats would need 12 RTN lines). The cRTN panels follow the thesis figure "Scheduling results of cRTN in Scenario 2".
+
+How to read it: the RTN's molten iron-s stays at 0 because a finished heat is transferred at once. The cRTN's resource levels are defined at slot boundaries (dots). Only the melting progress is also drawn inside the slots, reconstructed from how long the furnace runs at each power level.
+"""),
+    code(r"""
+from matplotlib.gridspec import GridSpec
+
+T = 6
+hours = np.arange(T + 1)
+fig = plt.figure(figsize=(12, 7.5))
+gs = GridSpec(8, 2, figure=fig, hspace=0.15, wspace=0.25)
+
+# RTN: one set of tasks and resources per heat
+info = m_rtn._rtn
+rtn_rows = []
+for h in range(2):
+    melt, trans = info["task_proc"](0, h), info["task_proc"](0, h) + 1
+    status = [pyo.value(m_rtn.S[h, t]) for t in range(T)]
+    rtn_rows += [
+        (f"melting task\nheat {h + 1}", status + [status[-1]], "step"),
+        (f"transfer task\nheat {h + 1}", [pyo.value(m_rtn.N[trans, t]) for t in range(T)] + [0], "start"),
+        (f"molten iron-s\nheat {h + 1}", [pyo.value(m_rtn.R[1 + 2 * h, t]) for t in hours], "step"),
+        (f"molten iron-d\nheat {h + 1}", [pyo.value(m_rtn.R[2 + 2 * h, t]) for t in hours], "step"),
+    ]
+for k, (label, values, kind) in enumerate(rtn_rows):
+    ax = fig.add_subplot(gs[k, 0])
+    color = "tab:blue" if k < 4 else "tab:orange"
+    if kind == "start":
+        starts = [t for t, v in enumerate(values) if v > 0.5]
+        ax.vlines(starts, 0, 1, color=color, lw=3); ax.plot(starts, [1] * len(starts), "v", color=color)
+    else:
+        ax.step(hours, values, where="post", color=color, lw=2)
+    ax.set_ylim(-0.2, 1.4); ax.set_yticks([]); ax.set_xlim(0, T)
+    ax.set_ylabel(label, rotation=0, ha="right", va="center", fontsize=8)
+    if k < 7:
+        ax.set_xticklabels([])
+    if k == 0:
+        ax.set_title(f"RTN: one set per heat (8 lines, {fx.count_vars(m_rtn)[0]} binaries)")
+ax.set_xlabel("Hour")
+
+# cRTN: one set of tasks and resources, shared by all heats
+t_melt, melt = crtn_progress(m_crtn, stage=0)
+crtn_rows = [
+    ("melting\nprogress", (t_melt, melt), "tab:orange"),  # within-slot reconstruction
+    ("molten iron-s\n(output)", (hours, [pyo.value(m_crtn.R[1, t]) for t in hours]), "tab:blue"),
+    ("waiting\nprogress", (hours, [pyo.value(m_crtn.R[2, t]) for t in hours]), "tab:red"),
+    ("molten iron-d\n(input, heats)", (hours, [pyo.value(m_crtn.R[3, t]) for t in hours]), "tab:green"),
+]
+for k, (label, (x, y), color) in enumerate(crtn_rows):
+    ax = fig.add_subplot(gs[2 * k:2 * k + 2, 1])
+    if k == 0:
+        ax.plot(x, y, color=color, lw=2); ax.set_ylim(-0.1, 1.2); ax.set_yticks([0, 1])
+    else:  # levels at slot boundaries
+        ax.plot(x, y, "o--", color=color, lw=1, ms=6)
+        ax.set_ylim(-0.2, 2.4 if k == 3 else 1.2); ax.set_yticks([0, 1, 2] if k == 3 else [0, 1])
+    ax.set_xlim(0, T)
+    ax.set_ylabel(label, rotation=0, ha="right", va="center", fontsize=8)
+    if k < 3:
+        ax.set_xticklabels([])
+    if k == 0:
+        ax.set_title(f"cRTN: shared by all heats (4 lines, {fx.count_vars(m_crtn)[0]} binaries)")
+ax.set_xlabel("Hour")
+plt.show()
+"""),
+    md(r"""
 ## 2. The steelmaking line
 
 Four serial stages: EAF (85 MW, power-flexible 75–125%) → AOD → LF → continuous caster (CC). Use the sliders to change the day (PJM real-time prices, July 2022) and the number of heats. Both models are solved at **30-minute** slots so that each solve takes a few seconds.
@@ -257,6 +358,19 @@ def show(day, heats):
     viz.plot_schedule(crtn, price, dt=DT, ax=axes[1],
                       title=f"cRTN: ${crtn.cost:,.0f}, {crtn.n_binary} binaries, {crtn.solve_seconds:.1f} s")
     plt.tight_layout(); plt.show()
+"""),
+    md(r"""
+**Which heat is where, and when?** A Gantt chart of the same day (3 heats) shows the schedules directly. Both models push the energy-hungry EAF melting into the cheaper hours, but the cRTN can start and finish tasks within a slot, so it packs the heats more tightly. (The cRTN decides how long each task runs within a slot, not its exact start time; the chart places that time at the slot edge next to the neighboring activity.)
+"""),
+    code(r"""
+price = np.repeat(prices.iloc[25].to_numpy(), int(1 / DT))  # July 26
+fig, axes = plt.subplots(2, 1, figsize=(11, 5.5), sharex=True)
+for ax, (name, build) in zip(axes, [("RTN", fx.build_rtn), ("cRTN", fx.build_crtn)]):
+    m = build(steel, price, 3, dt=DT)
+    r = fx.solve(m)
+    viz.plot_gantt(heat_schedule(m), [st.name for st in steel.stages], ax=ax, price=price, dt=DT,
+                   title=f"{name}: ${r.cost:,.0f}")
+plt.tight_layout(); plt.show()
 """),
     md(r"""
 ## 3. Model size: binaries vs. the number of heats
@@ -378,7 +492,7 @@ We pick "true" values, let the plant respond to 10 days of PJM prices (July 2022
     code(r"""
 true = MSTNParams(
     g=np.array([0.5, 0.25]),                # public
-    p_max=np.array([4.0, 8.0]),             # rated power of machines 1 and 2 (MW)
+    p_max=np.array([6.0, 8.0]),             # rated power of machines 1 and 2 (MW)
     s_init=np.array([200.0, 10.0, 0.0]),    # raw material, intermediate, final product
     s_target=np.array([-130.0, 0.0, 30.0]), # daily change: use raw, make 30 units of product
     s_max=np.array([400.0, 20.0, 100.0]),
@@ -456,6 +570,48 @@ for ax, d in zip(axes, [0, 2, 4]):
 axes[0].set_ylabel("MWh"); axes[0].legend(fontsize=8); plt.tight_layout(); plt.show()
 """),
     md(r"""
+**What the identified model does, machine by machine.** The meter only shows the total load. The identified model also explains *how* that load arises. Machine 1 can process 3 units/h but machine 2 only 2, so machine 1 runs ahead in cheap hours and fills the intermediate buffer, and machine 2 drains it later:
+"""),
+    code(r"""
+from indflex.identify import build_mstn
+
+def machine_schedule(params, price):
+    mm = build_mstn(params, price)
+    fx.solve(mm)
+    P = np.array([[mm.plant.P[t, i]() for i in range(2)] for t in range(24)])
+    S = np.array([mm.plant.S[t, 1]() for t in range(25)])  # intermediate buffer
+    return P, S
+
+price = test_prices[0]
+fig, axes = plt.subplots(1, 3, figsize=(14, 3.3))
+for ax, (label, params) in zip(axes[:2], [("true plant", true), ("identified model", theta)]):
+    P, _ = machine_schedule(params, price)
+    ax.bar(range(24), P[:, 0], label="machine 1", color="tab:blue")
+    ax.bar(range(24), P[:, 1], bottom=P[:, 0], label="machine 2", color="tab:orange")
+    ax.set(title=label, xlabel="Hour", ylabel="MW"); ax.legend(fontsize=8)
+for label, params, style in [("true", true, "k-"), ("identified", theta, "--")]:
+    axes[2].plot(machine_schedule(params, price)[1], style, lw=2, label=label)
+axes[2].set(title="intermediate buffer level", xlabel="Hour"); axes[2].legend(fontsize=8)
+ax2 = axes[2].twinx(); ax2.step(range(24), price * 1000, where="post", color="grey", alpha=0.5); ax2.set_ylabel("$/MWh", color="grey")
+plt.tight_layout(); plt.show()
+"""),
+    md(r"""
+The identified model runs the same machines at the same hours, and its buffer follows the same pattern, only shifted: the meter data reveals how much the buffer *changes*, not its absolute level. That shift is the unidentifiable part noted above, and it does not change the load.
+
+**Using the model: a demand-response event.** This is the use case in the thesis (Ch. 3, Fig. "Use cases for load modeling"). Before an event, an aggregator asks how the plant would respond if 06:00–11:00 became expensive. The identified model gives both the *baseline* (no event) and the *response*:
+"""),
+    code(r"""
+base = test_prices[0]
+event = base.copy(); event[6:11] = 0.3  # $/kWh during the event
+fig, ax = plt.subplots(figsize=(9, 3.6))
+ax.axvspan(6, 11, color="orange", alpha=0.15, label="DR event")
+ax.plot(simulate(theta, base[None])[0], "o-", color="tab:red", ms=4, label="identified model: baseline (no event)")
+ax.plot(simulate(theta, event[None])[0], "s--", color="tab:blue", ms=4, label="identified model: response to the event")
+ax.plot(simulate(true, event[None])[0], "k:", lw=2, label="true plant: response to the event")
+ax.set(xlabel="Hour", ylabel="MWh", title="Estimating a plant's demand response before the event")
+ax.legend(fontsize=8, loc="upper right"); plt.show()
+"""),
+    md(r"""
 ## 4. When is iteration needed?
 
 With many days of data, or a larger plant, two things change:
@@ -463,13 +619,13 @@ With many days of data, or a larger plant, two things change:
 * **Solving all days at once is too large.** Each day adds its own primal and dual variables and its own bilinear constraint.
 * **A single day can mislead.** Some days can be explained by the wrong parameters (for example, swapping which machine is large).
 
-PSI therefore iterates: it solves one day at a time under a short time limit, and after a first pass it also penalizes the distance from θ to the average of recent estimates, until the estimates agree across days (a zeroth-order stochastic method). Set `RUN_ITERATIVE = True` to watch this on the same plant (about 20 s). Each point is the solution of one day's inverse problem, not an initial guess.
+PSI therefore iterates: it solves one day at a time under a short time limit, and after a first pass it also penalizes the distance from θ to the average of recent estimates, until the estimates agree across days (a zeroth-order stochastic method). Set `RUN_ITERATIVE = True` to watch this on the same plant (about 30 s). Each point is the solution of one day's inverse problem, not an initial guess.
 """),
     code(r"""
 RUN_ITERATIVE = False
 
 if RUN_ITERATIVE:
-    theta_it, hist = train_psi(true.g, prices, meter, n_iter=22, time_limit=1.0)
+    theta_it, hist = train_psi(true.g, prices, meter, n_iter=33, time_limit=1.0)
     pm = np.array([h.p_max for h in hist.theta])
     fig, ax = plt.subplots(figsize=(7, 3.2))
     for i in range(2):
@@ -506,12 +662,140 @@ if RUN_CEMENT:
 * Next in the chain: thousands of such models are too complex for a grid model, so we compress them → **notebook 04: dimension reduction (D3R)**.
 """),
 ]
+NB04 = [
+    md(r"""
+# 04 · D3R: compressing a plant model into a few numbers
+
+**Where this sits in the chain:** process model → parameter identification → *dimension reduction* → grid/aggregator optimization.
+
+A grid or planning model would like to include thousands of factories, but each detailed process model (STN/RTN) brings its own binaries, and exact aggregation of many such models is computationally hard. Data-driven dimension reduction (D3R) replaces each detailed model with **reduced constraints** that are simple and linear, chosen so that their **optimal response to prices** mimics the detailed model's.
+
+*References:* thesis Ch. 4; R. Lyu et al., "Data-Driven Dimension Reduction for Industrial Load Modeling Using Inverse Optimization," *IEEE Trans. Smart Grid* 16(3), 2025; paper code: [Data-Driven-Dimension-Reduction](https://github.com/ruikelyu/Data-Driven-Dimension-Reduction).
+
+Everything here runs with the free HiGHS solver, in seconds.
+"""),
+    code(r"""
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import indflex as fx
+from indflex.identify import make_meter_dataset
+from indflex.reduce import ALFParams, build_alf, fit_alf, simulate_alf, nrmse_paper
+
+plt.rcParams["figure.dpi"] = 110
+"""),
+    md(r"""
+## 1. The detailed model and its responses
+
+We take the **cement plant STN** from notebook 01 (4 machines with on/off modes, buffers between them) and record its optimal hourly load under PJM prices. We use these days for training and later check on July 22–31. The data is in MWh and $/kWh, as in the paper.
+"""),
+    code(r"""
+plant = fx.load_plant("cement_golmohamadi2020")
+ds = make_meter_dataset(plant)
+n_bin, n_cont = fx.count_vars(fx.build_stn(plant, ds.price_train[0] * 1000))
+print(f"detailed model (STN): {n_bin} binary + {n_cont} continuous variables per day")
+
+fig, ax = plt.subplots(figsize=(9, 3.2))
+for d in range(3):
+    ax.plot(ds.load_train[d], label=f"July {d + 1}")
+ax.set(title="Optimal load of the detailed model", xlabel="Hour", ylabel="MWh"); ax.legend(fontsize=8); plt.show()
+"""),
+    md(r"""
+## 2. The reduced form: an adjustable load fleet (ALF)
+
+The plant is approximated by $I$ adjustable loads in parallel. Load $i$ draws $p_{t,i}$ with
+
+$$\underline P_i \le p_{t,i} \le \overline P_i \quad\text{(every hour)},\qquad \underline E_i \le \textstyle\sum_t p_{t,i}\,\Delta t \le \overline E_i \quad\text{(over the day)},$$
+
+and the plant's load is $\sum_i p_{t,i}$. That is **4 numbers per load**, and the plant's response to a price becomes a tiny LP. The ALF keeps three features of industrial loads: several pieces of equipment, rated powers, and a daily production goal (energy).
+
+## 3. Learning the ALF by inverse optimization
+
+We want ALF parameters whose **optimal** response reproduces the detailed model's. As in notebook 03, we write the ALF's optimality (KKT) conditions as constraints and let the parameters be variables. Here the complementary-slackness conditions are linearized with big-M binaries, so the problem has no bilinear terms:
+
+* squared-error loss → mixed-integer QP (Gurobi, as in the paper);
+* absolute-error loss → **MILP, which the free HiGHS solver handles**.
+
+For one adjustable load and three days of data, **one solve** is enough:
+"""),
+    code(r"""
+alf, info = fit_alf(ds.price_train[:3], ds.load_train[:3], n_loads=1, solver="highs")
+print(f"{info['status']} in {info['seconds']:.1f} s ({info['binaries']} binaries in the inverse problem)")
+alf.as_frame()
+"""),
+    md(r"""
+The learned ALF says: the plant always draws between $\underline P$ and $\overline P$ and must use a fixed amount of energy per day (a production target, so $\underline E \approx \overline E$). Its flexibility is *when* it uses that energy.
+
+## 4. Check on unseen prices (July 22–31)
+
+First, what the learned ALF allows: hourly power anywhere in the band $[\underline P, \overline P]$, with a fixed daily energy. Under each price it draws as little as possible in the expensive hours, as long as it still uses its daily energy. Below, the band and the ALF's response to three unseen days (top), and the detailed model's response to the same days (bottom):
+"""),
+    code(r"""
+pred = simulate_alf(alf, ds.price_cv)
+fig, axes = plt.subplots(2, 1, figsize=(10, 5.5), sharex=True)
+for ax, (label, loads) in zip(axes, [("1-load ALF", pred), ("detailed STN", ds.load_cv)]):
+    ax.axhspan(alf.p_min.sum(), alf.p_max.sum(), color="tab:green", alpha=0.12, label="ALF power band")
+    for d, c in zip([0, 4, 8], ["C0", "C1", "C3"]):
+        ax.plot(loads[d], color=c, lw=2, label=f"July {22 + d}")
+    ax.set(ylabel="MWh", title=label, ylim=(0, alf.p_max.sum() * 1.15))
+axes[0].legend(fontsize=8, ncol=4, loc="lower left"); axes[1].set_xlabel("Hour")
+plt.tight_layout(); plt.show()
+"""),
+    md(r"""
+How close is the ALF's response to the detailed model on each held-out day?
+"""),
+    code(r"""
+pred = simulate_alf(alf, ds.price_cv)
+print(f"nRMSE vs. the detailed model: {100 * nrmse_paper(pred, ds.load_cv):.1f}%   (paper, 1 load: 8.9%)")
+
+fig, axes = plt.subplots(1, 3, figsize=(13, 3.2), sharey=True)
+for ax, d in zip(axes, [0, 4, 8]):
+    ax.plot(ds.load_cv[d], "k", lw=2.5, label="detailed STN")
+    ax.plot(pred[d], "--", color="tab:green", lw=2, label="1-load ALF")
+    ax.set(title=f"July {22 + d}", xlabel="Hour")
+axes[0].set_ylabel("MWh"); axes[0].legend(fontsize=8); plt.tight_layout(); plt.show()
+"""),
+    md(r"""
+The errors are errors in the **optimal response** under new prices. The ALF does not guarantee that its schedules are feasible for the detailed plant; in practice, the detailed model (or the plant itself) turns the reduced model's decision into an executable schedule.
+
+**More loads, better fit.** A second adjustable load lets the ALF represent equipment with different flexibility. Set `RUN_TWO_LOADS = True` to fit it: about a minute with HiGHS, or about 20 s with `solver="gurobi"`. In our runs the error fell to about 3%.
+"""),
+    code(r"""
+RUN_TWO_LOADS = False
+
+if RUN_TWO_LOADS:
+    alf2, info2 = fit_alf(ds.price_train[:3], ds.load_train[:3], n_loads=2, solver="highs", time_limit=120)
+    print(f"{info2['status']} in {info2['seconds']:.0f} s, nRMSE {100 * nrmse_paper(simulate_alf(alf2, ds.price_cv), ds.load_cv):.1f}%")
+    display(alf2.as_frame())
+"""),
+    md(r"""
+## 5. Why this matters for the grid
+
+The reduced model is an LP with $4I$ parameters, so many plants are cheap to handle together. Compare the size of the two models for one plant-day:
+"""),
+    code(r"""
+alf_bin, alf_cont = fx.count_vars(build_alf(alf, ds.price_cv[0]))
+pd.DataFrame({"binary variables": [n_bin, alf_bin], "continuous variables": [n_cont, alf_cont]},
+             index=["detailed STN", f"ALF, {alf.n_loads} load"])
+"""),
+    md(r"""
+For the steelmaking line of notebook 02, the paper replaces **10,208 integer variables with 24 continuous ones** at 3.6% error.
+
+**When is iteration needed?** One solve becomes too large with many days or many loads, since each day adds its own binaries. The paper's code then solves small random batches of days and moves the parameters a small step toward each batch's solution (`indflex.reduce.train_d3r`).
+
+**Takeaways**
+* D3R learns reduced constraints from the detailed model's *optimal responses*, using the same inverse-optimization idea as PSI.
+* An adjustable load fleet captures the main features of industrial flexibility with a handful of numbers, and it fits in any LP.
+* Next in the chain: put reduced plant models into a grid model → **notebook 05: grid co-optimization**.
+"""),
+]
+
 
 def main(only=None):
     """Write the notebooks (without outputs). ``only``: list of name prefixes, e.g. ["03"]."""
     out = ROOT / "notebooks"
     out.mkdir(exist_ok=True)
-    for fname, cells in [("01_stn_vs_lstn.ipynb", NB01), ("02_rtn_vs_crtn.ipynb", NB02), ("03_psi.ipynb", NB03)]:
+    for fname, cells in [("01_stn_vs_lstn.ipynb", NB01), ("02_rtn_vs_crtn.ipynb", NB02), ("03_psi.ipynb", NB03), ("04_d3r.ipynb", NB04)]:
         if only and not any(fname.startswith(o) for o in only):
             continue
         nb = nbf.v4.new_notebook(cells=cells)

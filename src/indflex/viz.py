@@ -78,3 +78,36 @@ def plot_scaling(rows, time_limit: float | None = None, ax=None, xlabel: str = "
     ax.legend()
     ax.grid(alpha=0.3, which="both")
     return ax
+
+
+def plot_gantt(schedule, stages, ax=None, price=None, dt: float = 1.0, title: str = "", horizon: float | None = None):
+    """Gantt chart of heats (bars) through serial stages; ``schedule`` from ``models.heat_schedule``.
+
+    Optionally shades the price profile behind the bars.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(10, 0.6 * len(stages) + 1.2))
+    cmap = plt.get_cmap("tab10")
+    y = {s: k for k, s in enumerate(reversed(list(stages)))}
+    for r in schedule.itertuples():
+        ax.barh(y[r.stage], r.end - r.start, left=r.start, height=0.6, color=cmap((r.heat - 1) % 10),
+                edgecolor="black", lw=0.6)
+        if r.end - r.start > 0.35:
+            ax.text((r.start + r.end) / 2, y[r.stage], str(r.heat), ha="center", va="center", fontsize=8, color="white",
+                    fontweight="bold")
+    ax.set_yticks(list(y.values()), list(y.keys()))
+    if price is not None:
+        price = np.asarray(price)
+        ax2 = ax.twinx()
+        t = np.arange(len(price) + 1) * dt
+        ax2.fill_between(t, np.append(price, price[-1]), step="post", color="grey", alpha=0.15, lw=0)
+        ax2.set_ylabel("Price ($/MWh)", color="grey")
+        ax2.set_ylim(0, price.max() * 1.1)
+        ax.set_zorder(ax2.get_zorder() + 1)
+        ax.patch.set_visible(False)
+        horizon = horizon or len(price) * dt
+    if horizon:
+        ax.set_xlim(0, horizon)
+    ax.set_xlabel("Hour")
+    ax.set_title(title)
+    return ax

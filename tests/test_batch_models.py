@@ -69,3 +69,22 @@ def test_batch_and_continuous_loaders_are_separate():
         fx.load_plant("steelmaking_zhang2017")
     with pytest.raises(ValueError):
         fx.load_batch_plant("steel_powder_lu2021")
+
+
+def test_heat_schedule_small_case():
+    """Thesis Ch. 2 illustrative case, scenario 2: cRTN melts heats in 0-1.5 h and 1.5-3 h."""
+    from indflex.models import crtn_progress, heat_schedule
+
+    plant = fx.load_batch_plant("eaf_small_case")
+    price = np.loadtxt(FIX / "small_s2_price.csv", delimiter=",")
+    m = fx.build_crtn(plant, price, 2)
+    fx.solve(m)
+    sched = heat_schedule(m).sort_values("start")
+    np.testing.assert_allclose(sched[["start", "end"]].to_numpy(), [[0, 1.5], [1.5, 3.0]], atol=1e-3)
+    t, progress = crtn_progress(m)
+    assert progress.max() == pytest.approx(1.0) and progress[-1] == pytest.approx(0.0)
+
+    m = fx.build_rtn(plant, price, 2)
+    fx.solve(m)
+    ends = sorted(heat_schedule(m)["end"])
+    assert ends == [2.0, 4.0]  # whole slots: the second heat finishes in an expensive hour

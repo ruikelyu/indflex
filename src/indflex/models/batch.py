@@ -145,6 +145,7 @@ def build_crtn(plant: BatchPlant, price: Sequence[float], n_heats: int, dt: floa
     )
     m.net_load = pyo.Expression(m.T, rule=lambda m, t: sum(m.stage_energy[j, t] for j in range(n)))
     m.cost = pyo.Objective(expr=sum(price[t] * m.net_load[t] for t in Ts))  # MWh * $/MWh
+    m._crtn = {"G": G, "proc": proc}
     m._meta = {"kind": "crtn", "plants": [plant], "price": price, "dt": dt, "n_heats": n_heats,
                "detail": _stage_energy_detail, "energy_unit": "MWh"}
     return m
@@ -260,6 +261,7 @@ def build_rtn(plant: BatchPlant, price: Sequence[float], n_heats: int, dt: float
     m.stage_energy = pyo.Expression(range(n), Ts, rule=stage_energy)
     m.net_load = pyo.Expression(m.T, rule=lambda m, t: sum(m.stage_energy[j, t] for j in range(n)))
     m.cost = pyo.Objective(expr=sum(price[t] * m.net_load[t] for t in Ts))
+    m._rtn = {"task_proc": task_proc, "slots": ps, "n_heats": H}
     m._meta = {"kind": "rtn", "plants": [plant], "price": price, "dt": dt, "n_heats": n_heats,
                "detail": _stage_energy_detail, "energy_unit": "MWh"}
     return m
@@ -273,3 +275,80 @@ def _stage_energy_detail(m):
         [[pyo.value(m.stage_energy[j, t]) for t in T] for j in range(plant.n_stages)], index=names, columns=T
     )
     return energy, None
+
+
+# --------------------------------------------------------------------------------------
+# Reading schedules back out of solved models (for plots)
+# --------------------------------------------------------------------------------------
+def _crtn_segments(m, j: int):
+    """Piecewise-linear cumulative progress of stage j's processing task, in hours.
+
+    The cRTN only says *how long* a task runs within each slot, not *when*. For
+    drawing, a task that continues from the previous slot runs at the start of the
+    slot; one that continues into the next slot runs at its end; otherwise at the start.
+    """
+    dt, T = m._meta["dt"], len(m.T)
+    G, i = m._crtn["G"], m._crtn["proc"][j]
+    active = [sum(pyo.value(m.D[i, k, t]) for k in (1, 2)) for t in range(T)]
+    gain = [sum(G[i, k] * pyo.value(m.D[i, k, t]) for k in (1, 2)) for t in range(T)]
+    segs, c = [], 0.0
+    for t in range(T):
+        a = active[t]
+        if a < 1e-9 or gain[t] < 1e-12:
+            continue
+        if t > 0 and active[t - 1] > 1e-9:
+            start = t
+        elif t + 1 < T and active[t + 1] > 1e-9:
+            start = t + 1 - a
+        else:
+            start = t
+        segs.append((start * dt, (start + a) * dt, c, c + gain[t]))
+        c += gain[t]
+    return segs
+
+
+def crtn_progress(m, stage: int = 0):
+    """(times, progress) of one stage's processing task, resetting to 0 when a heat completes."""
+    times, prog = [0.0], [0.0]
+    done = 0
+    for t0, t1, c0, c1 in _crtn_segments(m, stage):
+        times.append(t0); prog.append(c0 - done)
+        while c1 >= done + 1 - 1e-6:  # a heat completes inside this segment
+            tf = t0 + (t1 - t0) * (done + 1 - c0) / (c1 - c0)
+            times += [tf, tf]; prog += [1.0, 0.0]
+            done += 1
+        times.append(t1); prog.append(c1 - done)
+    times.append(len(m.T) * m._meta["dt"]); prog.append(prog[-1])
+    return np.array(times), np.clip(np.array(prog), 0, 1)
+
+
+def heat_schedule(m) -> pd.DataFrame:
+    """When each heat is processed at each stage (hours), from a solved RTN or cRTN model."""
+    plant, dt, T = m._meta["plants"][0], m._meta["dt"], len(m.T)
+    rows = []
+    if m._meta["kind"] == "crtn":
+        for j, st in enumerate(plant.stages):
+            segs = _crtn_segments(m, j)
+            total = segs[-1][3] if segs else 0
+            for h in range(int(round(total))):
+                def when(level, first):
+                    for t0, t1, c0, c1 in segs:
+                        if c0 - 1e-6 <= level <= c1 + 1e-6 and (c1 - c0) > 1e-9 and (c1 > level + 1e-6 if first else True):
+                            return t0 + (t1 - t0) * (min(max(level, c0), c1) - c0) / (c1 - c0)
+                    return None
+                start, end = when(h, True), when(h + 1, False)
+                if start is not None and end is not None:
+                    rows.append({"stage": st.name, "heat": h + 1, "start": start, "end": end})
+    else:
+        info = m._rtn
+        for h in range(info["n_heats"]):
+            on = [t for t in range(T) if pyo.value(m.S[h, t]) > 0.5]
+            if on:
+                rows.append({"stage": plant.stages[0].name, "heat": h + 1, "start": on[0] * dt, "end": (on[-1] + 1) * dt})
+            for j in range(1, plant.n_stages):
+                i = info["task_proc"](j, h)
+                s0 = [t for t in range(T) if pyo.value(m.N[i, t]) > 0.5]
+                if s0:
+                    rows.append({"stage": plant.stages[j].name, "heat": h + 1, "start": s0[0] * dt,
+                                 "end": (s0[0] + info["slots"][0, j]) * dt})
+    return pd.DataFrame(rows, columns=["stage", "heat", "start", "end"])
