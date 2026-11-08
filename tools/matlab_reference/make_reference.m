@@ -9,7 +9,7 @@ out = fullfile(root, 'tests', 'fixtures');
 if ~exist(out, 'dir'), mkdir(out); end
 
 %% Case 1 and 2: steel powder plant (STN folder data), July 23, STN (MILP) and LSTN (LP)
-cd(fullfile(root, 'STN_Implementation'));
+cd(fullfile(root, 'matlab', 'stn'));
 filename = "load_parameters_Lu_milp.xlsx";
 load_parameter = xlsread(filename);
 e_np = load_parameter(:, [2, 4, 6]);
@@ -33,7 +33,7 @@ write_case(out, 'lstn_steelpowder_jul23', value(Z_primal), value(E_hn));
 
 %% Case 3: cement plant (Golmohamadi 2020), STN, July 1-3
 clearvars -except root out
-cd(fullfile(root, 'STN_Implementation'));
+cd(fullfile(root, 'matlab', 'stn'));
 load_parameter = xlsread("load_parameters_Golmo_milp.xlsx");
 e_np = 1e-3 * load_parameter(:, 2 : 2 : end);
 g_np = 1e-3 * load_parameter(:, 1 : 2 : end - 1);
@@ -49,7 +49,7 @@ end
 
 %% Case 4: original LSTN_model.m (LSTN data, August 1), solver swapped to Gurobi
 clearvars -except root out
-cd(fullfile(root, 'LSTN_matlab'));
+cd(fullfile(root, 'matlab', 'lstn'));
 src = fileread('LSTN_model.m');
 src = strrep(src, "'CPLEX'", "'GUROBI'");
 eval(src);
@@ -57,7 +57,7 @@ write_case(out, 'lstn_model_aug01', value(Z_primal), value(E_hn));
 
 %% Case 5: aggregated LSTN, 5 factories, August 5
 clearvars -except root out
-cd(fullfile(root, 'LSTN_matlab'));
+cd(fullfile(root, 'matlab', 'lstn'));
 load(fullfile('parameter_factories', 'F_parameters_5.mat'), ...
     'F_e_np', 'F_g_np', 'F_S_max', 'F_S_tar', 'F_S_0', 'Price_days');
 NOFFACTORIES = 5; NOFMACHINES = 10; NOFPOINTS = 3; NOFINTERVALS = 24;

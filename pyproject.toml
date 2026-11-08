@@ -27,10 +27,13 @@ Documentation = "https://github.com/ruikelyu/indflex/tree/main/docs"
 [project.optional-dependencies]
 dev = ["pytest", "jupyter", "nbconvert", "ipykernel", "ipywidgets", "scikit-learn"]
 gurobi = ["gurobipy"]  # needs a full Gurobi license (free for academics); required by indflex.identify
-legacy = ["openpyxl", "scipy"]  # only for tools/convert_legacy_data.py
+legacy = ["openpyxl", "scipy"]  # only for tools/convert/
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/indflex"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"data" = "indflex/_data"  # ship plants, prices, fleets and the VPP case with the package
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

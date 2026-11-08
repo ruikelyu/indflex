@@ -37,4 +37,4 @@ Seven cases (steel powder STN and LSTN, cement STN on three days, the original `
 
 * R. Lyu, H. Guo, Y. Zheng, Y. Bai, Q. Chen, "LSTN: A Linear Model of Industrial Production Process for Demand Response," *IEEE ISGT Europe*, 2023.
 * Thesis Ch. 2. Plant data: R. Lu et al., *Appl. Energy* 283 (2021) 116291 (steel powder); H. Golmohamadi et al., *IEEE Trans. Ind. Electron.* 67(2), 2020 (cement).
-* Original MATLAB code: [`LSTN_matlab/`](../LSTN_matlab), [`STN_Implementation/`](../STN_Implementation).
+* Original MATLAB code: [`matlab/lstn/`](../matlab/lstn), [`matlab/stn/`](../matlab/stn).

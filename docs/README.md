@@ -22,4 +22,4 @@ Notebook sources live in `tools/build_notebooks.py`, so changes are reviewable a
 
 ## Regenerating the MATLAB references
 
-The tests compare the Python models with outputs of the original MATLAB code (YALMIP + Gurobi), stored in `tests/fixtures/`. The scripts that produced them are in `tools/matlab_reference/`.
+The tests compare the Python models with outputs of the original MATLAB code (YALMIP + Gurobi), stored in `tests/fixtures/`. The scripts that produced them are in `tools/matlab_reference/`; `tools/convert/paper_fixtures.py` extracts the PSI and D3R fixtures from the paper repositories' saved results, and `tools/convert/` also holds the converters that produced `data/` from the original spreadsheets and `.mat` files.

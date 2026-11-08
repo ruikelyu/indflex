@@ -1,7 +1,7 @@
 """Extract the PSI and D3R test fixtures from the paper repositories' saved data.
 
-    python tools/extract_paper_fixtures.py /path/to/Production-Scheduling-Identification \
-                                           /path/to/Data-Driven-Dimension-Reduction
+    python tools/convert/paper_fixtures.py /path/to/Production-Scheduling-Identification \
+                                            /path/to/Data-Driven-Dimension-Reduction
 """
 
 import sys
@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import scipy.io as sio
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def psi(repo: Path):
