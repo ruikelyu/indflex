@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use this toolkit, please cite it and the paper for the method you use."
+message: "If you use this toolkit, please cite the PhD thesis below, and the paper for the method you use."
 title: "indflex: industrial demand flexibility from process models to grid decisions"
 type: software
 authors:
@@ -7,6 +7,20 @@ authors:
     given-names: Ruike
 repository-code: "https://github.com/ruikelyu/indflex"
 license: MIT
+preferred-citation:
+  type: thesis
+  title: "Industrial Load Modeling and Optimization for Market-Based Interaction with Power Systems"
+  authors:
+    - family-names: Lyu
+      given-names: Ruike
+  thesis-type: "Ph.D. thesis"
+  institution:
+    name: "Tsinghua University"
+    city: Beijing
+    country: CN
+  department: "Department of Electrical Engineering"
+  year: 2026
+  month: 6
 references:
   - type: article
     title: "Production Scheduling Identification: An Inverse Optimization Approach for Industrial Load Modeling Using Smart Meter Data"
