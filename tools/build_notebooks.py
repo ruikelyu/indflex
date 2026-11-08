@@ -472,7 +472,7 @@ This notebook shows the idea on a **2-machine plant whose true parameters we kno
 
 *References:* thesis Ch. 3; R. Lyu et al., "Production Scheduling Identification: An Inverse Optimization Approach for Industrial Load Modeling Using Smart Meter Data," *IEEE Trans. Smart Grid* 16(2), 2025; paper code: [Production-Scheduling-Identification](https://github.com/ruikelyu/Production-Scheduling-Identification).
 
-**Solver note:** the inverse problem is nonconvex (bilinear), so this notebook uses **Gurobi** (`pip install gurobipy` plus a license; academic licenses are free). The size-limited license bundled with `gurobipy` is too small for it.
+**Solver note:** the inverse problem is nonconvex (bilinear), so this notebook uses **Gurobi** (`pip install gurobipy` plus a license; academic licenses are free). The size-limited license bundled with `gurobipy` is too small for it, so on Colab you need to add your own license (e.g. a Gurobi WLS license).
 """),
     code(r"""
 import numpy as np
@@ -939,13 +939,31 @@ pd.DataFrame(rows).describe().loc[["mean", "max"]].round(4)
 ]
 
 
+REPO = "ruikelyu/indflex"
+
+
+def colab_cells(fname, extras="dev"):
+    """An 'Open in Colab' badge and an install cell that only runs on Colab."""
+    badge = md(f"[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)]"
+               f"(https://colab.research.google.com/github/{REPO}/blob/main/notebooks/{fname})")
+    install = code(f"""# On Google Colab, install indflex first (locally: pip install -e ".[{extras}]")
+import sys
+if "google.colab" in sys.modules:
+    !pip install -q "indflex[{extras}] @ git+https://github.com/{REPO}"
+""")
+    return [badge, install]
+
+
 def main(only=None):
     """Write the notebooks (without outputs). ``only``: list of name prefixes, e.g. ["03"]."""
     out = ROOT / "notebooks"
     out.mkdir(exist_ok=True)
-    for fname, cells in [("01_stn_vs_lstn.ipynb", NB01), ("02_rtn_vs_crtn.ipynb", NB02), ("03_psi.ipynb", NB03), ("04_d3r.ipynb", NB04), ("05_vpp.ipynb", NB05)]:
+    books = [("01_stn_vs_lstn.ipynb", NB01, "dev"), ("02_rtn_vs_crtn.ipynb", NB02, "dev"),
+             ("03_psi.ipynb", NB03, "dev,gurobi"), ("04_d3r.ipynb", NB04, "dev"), ("05_vpp.ipynb", NB05, "dev")]
+    for fname, cells, extras in books:
         if only and not any(fname.startswith(o) for o in only):
             continue
+        cells = [cells[0], *colab_cells(fname, extras), *cells[1:]]  # title, then Colab, then the rest
         nb = nbf.v4.new_notebook(cells=cells)
         nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
         nbf.write(nb, out / fname)
