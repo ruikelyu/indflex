@@ -90,7 +90,19 @@ The paper repositories remain the reference for reproducing each paper exactly; 
 
 ## Citation
 
-If this toolkit helps your work, please cite the paper for the step you use (table above); see also [`CITATION.cff`](CITATION.cff).
+If this toolkit helps your work, please cite the thesis, and the paper for the step you use (table above):
+
+```bibtex
+@phdthesis{lyu2026industrial,
+  author = {Ruike Lyu},
+  title  = {Industrial Load Modeling and Optimization for Market-Based Interaction with Power Systems},
+  school = {Tsinghua University},
+  year   = {2026},
+  month  = jun
+}
+```
+
+See also [`CITATION.cff`](CITATION.cff).
 
 ---
 
