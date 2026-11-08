@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "indflex"
+version = "0.1.0"
+description = "Industrial demand flexibility: from process models to grid decisions"
+keywords = ["demand flexibility", "industrial load", "demand response", "state-task network", "inverse optimization", "virtual power plant"]
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Ruike Lyu" }]
+requires-python = ">=3.10"
+dependencies = [
+  "pyomo>=6.7",
+  "highspy>=1.7",
+  "numpy",
+  "pandas",
+  "pyyaml",
+  "matplotlib",
+]
+
+[project.urls]
+Homepage = "https://github.com/ruikelyu/indflex"
+Documentation = "https://github.com/ruikelyu/indflex/tree/main/docs"
+
+[project.optional-dependencies]
+dev = ["pytest", "jupyter", "nbconvert", "ipykernel", "ipywidgets", "scikit-learn"]
+gurobi = ["gurobipy"]  # needs a full Gurobi license (free for academics); required by indflex.identify
+legacy = ["openpyxl", "scipy"]  # only for tools/convert_legacy_data.py
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/indflex"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

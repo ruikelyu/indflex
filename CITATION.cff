@@ -1,0 +1,70 @@
+cff-version: 1.2.0
+message: "If you use this toolkit, please cite it and the paper for the method you use."
+title: "indflex: industrial demand flexibility from process models to grid decisions"
+type: software
+authors:
+  - family-names: Lyu
+    given-names: Ruike
+repository-code: "https://github.com/ruikelyu/indflex"
+license: MIT
+references:
+  - type: article
+    title: "Production Scheduling Identification: An Inverse Optimization Approach for Industrial Load Modeling Using Smart Meter Data"
+    authors:
+      - {family-names: Lyu, given-names: Ruike}
+      - {family-names: Guo, given-names: Hongye}
+      - {family-names: Tang, given-names: Qinghu}
+      - {family-names: Chen, given-names: Qixin}
+      - {family-names: Kang, given-names: Chongqing}
+    journal: "IEEE Transactions on Smart Grid"
+    volume: 16
+    issue: 2
+    start: 1207
+    end: 1220
+    year: 2025
+  - type: article
+    title: "Data-Driven Dimension Reduction for Industrial Load Modeling Using Inverse Optimization"
+    authors:
+      - {family-names: Lyu, given-names: Ruike}
+      - {family-names: Guo, given-names: Hongye}
+      - {family-names: Strbac, given-names: Goran}
+      - {family-names: Kang, given-names: Chongqing}
+    journal: "IEEE Transactions on Smart Grid"
+    volume: 16
+    issue: 3
+    start: 2695
+    end: 2698
+    year: 2025
+  - type: article
+    title: "Efficient Scheduling of Discrete Industrial Processes through Continuous Modeling"
+    authors:
+      - {family-names: Lyu, given-names: Ruike}
+      - {family-names: Su, given-names: X.}
+      - {family-names: Du, given-names: E.}
+      - {family-names: Guo, given-names: Hongye}
+      - {family-names: Chen, given-names: Qixin}
+      - {family-names: Kang, given-names: Chongqing}
+    journal: "IEEE Transactions on Smart Grid"
+    notes: "in press"
+  - type: article
+    title: "Real-Time Operation Strategy of Virtual Power Plants With Optimal Power Disaggregation Among Heterogeneous Resources"
+    authors:
+      - {family-names: Chen, given-names: Qixin}
+      - {family-names: Lyu, given-names: Ruike}
+      - {family-names: Guo, given-names: Hongye}
+      - {family-names: Su, given-names: X.}
+    journal: "Applied Energy"
+    volume: 361
+    start: 122876
+    year: 2024
+  - type: conference-paper
+    title: "LSTN: A Linear Model of Industrial Production Process for Demand Response"
+    authors:
+      - {family-names: Lyu, given-names: Ruike}
+      - {family-names: Guo, given-names: Hongye}
+      - {family-names: Zheng, given-names: Y.}
+      - {family-names: Bai, given-names: Y.}
+      - {family-names: Chen, given-names: Qixin}
+    conference:
+      name: "IEEE PES Innovative Smart Grid Technologies Europe (ISGT Europe)"
+    year: 2023

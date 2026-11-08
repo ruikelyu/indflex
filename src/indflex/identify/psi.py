@@ -1,0 +1,349 @@
+"""Production Scheduling Identification (PSI): learn a plant model from meter data.
+
+Setting
+-------
+A grid operator or aggregator sees only a factory's **hourly meter data** ``E_d`` and
+the **prices** ``π_d`` it faced on each day ``d``. It assumes the factory schedules
+production to minimize its energy cost, subject to a modified State-Task Network
+(mSTN) with unknown, private parameters
+
+    θ = (P_max, S_init, S_target, S_max)
+
+and asks: which θ makes the mSTN's *optimal* response reproduce the meter data?
+
+Method (thesis Ch. 3; Lyu et al., IEEE TSG 16(2), 2025)
+------------------------------------------------------
+1. **Inverse problem for one day.** Embed the mSTN's optimality conditions (primal
+   feasibility, dual feasibility, strong duality) as constraints, treat θ as decision
+   variables, and minimize the squared gap between the model's load and the meter data.
+   Strong duality multiplies dual variables by θ, so the problem is nonconvex
+   (bilinear); the paper solves it with Gurobi's ``NonConvex=2`` under a short time limit.
+2. **Zeroth-order stochastic iteration.** Cycle through the training days; after
+   one pass, add a penalty that keeps θ close to the running average of recent
+   estimates, and decay the data-fit weight. θ settles on values consistent with all days.
+3. **Model selection.** Repeat for several numbers of stages; keep the one that does
+   best on held-out days.
+
+This module transcribes the MATLAB code in
+https://github.com/ruikelyu/Production-Scheduling-Identification
+"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+
+import numpy as np
+import pyomo.environ as pyo
+
+from ..data import Plant
+from ..models import build_stn
+from ..solve import solve
+
+
+# --------------------------------------------------------------------------------------
+# The mSTN forward model
+# --------------------------------------------------------------------------------------
+@dataclass
+class MSTNParams:
+    """Parameters of an mSTN with ``N`` machines in series and ``N + 1`` buffers.
+
+    Buffer 0 holds raw material, buffer ``j`` (1..N-1) sits between machines ``j-1``
+    and ``j``, and buffer ``N`` holds the final product. Machine ``i`` draws power
+    ``P[t, i]`` in ``[0, p_max[i]]`` and processes ``g[i] * P[t, i]`` material per hour.
+    """
+
+    g: np.ndarray  # (N,) material per unit energy: public prior knowledge
+    p_max: np.ndarray  # (N,) rated power
+    s_init: np.ndarray  # (N+1,) initial buffer levels
+    s_target: np.ndarray  # (N+1,) required net change of each buffer over the day
+    s_max: np.ndarray  # (N+1,) buffer capacities
+
+    @property
+    def n_machines(self) -> int:
+        return len(self.g)
+
+    def as_dict(self) -> dict:
+        return {k: np.asarray(getattr(self, k)).round(4).tolist()
+                for k in ("g", "p_max", "s_init", "s_target", "s_max")}
+
+
+def _add_mstn(m: pyo.Block, g, T: int, dt: float, p_max, s_init, s_target, s_max) -> None:
+    """mSTN primal constraints. Parameters may be numbers or Pyomo variables."""
+    N = len(g)
+    m.P = pyo.Var(range(T), range(N), domain=pyo.NonNegativeReals)
+    m.S = pyo.Var(range(T + 1), range(N + 1), domain=pyo.NonNegativeReals)
+    c = m.primal = pyo.ConstraintList()
+    for t in range(T):
+        for i in range(N):
+            c.add(m.P[t, i] <= p_max[i])
+        for j in range(N + 1):
+            inflow = g[j - 1] * m.P[t, j - 1] if j > 0 else 0
+            outflow = g[j] * m.P[t, j] if j < N else 0
+            c.add(m.S[t + 1, j] - m.S[t, j] - inflow + outflow == 0)
+    for j in range(N + 1):
+        c.add(m.S[0, j] == s_init[j])
+        c.add(s_init[j] + s_target[j] - m.S[T, j] <= 0)
+        for t in range(T + 1):
+            c.add(m.S[t, j] <= s_max[j])
+    m.load = pyo.Expression(range(T), rule=lambda m, t: dt * sum(m.P[t, i] for i in range(N)))
+
+
+def build_mstn(params: MSTNParams, price: Sequence[float], dt: float = 1.0) -> pyo.ConcreteModel:
+    """Forward problem: the plant's cost-minimizing schedule for given parameters (an LP)."""
+    price = np.asarray(price, dtype=float)
+    T = len(price)
+    m = pyo.ConcreteModel(name="mSTN")
+    m.T = pyo.RangeSet(0, T - 1)
+    m.plant = pyo.Block()
+    _add_mstn(m.plant, params.g, T, dt, params.p_max, params.s_init, params.s_target, params.s_max)
+    m.net_load = pyo.Expression(m.T, rule=lambda m, t: m.plant.load[t])
+    m.cost = pyo.Objective(expr=sum(price[t] * m.net_load[t] for t in m.T))
+    m._meta = {"kind": "mstn", "price": price, "dt": dt}
+    return m
+
+
+def simulate(params: MSTNParams, prices: np.ndarray, dt: float = 1.0) -> np.ndarray:
+    """Optimal load (days x T) of the mSTN under each day's price (rows of ``prices``)."""
+    return np.array([solve(build_mstn(params, p, dt)).load for p in np.atleast_2d(prices)])
+
+
+# --------------------------------------------------------------------------------------
+# Meter-data datasets generated by the "true" plant
+# --------------------------------------------------------------------------------------
+@dataclass
+class MeterDataset:
+    """Daily (price, meter) pairs: rows are days, columns are hours."""
+
+    price_train: np.ndarray
+    load_train: np.ndarray
+    price_cv: np.ndarray
+    load_cv: np.ndarray
+    price_test: np.ndarray
+    load_test: np.ndarray
+    description: str = ""
+
+
+def make_meter_dataset(plant: Plant, price_scale: float = 1e-3, energy_scale: float = 1e-3) -> MeterDataset:
+    """Simulate a plant's meter data with the STN (notebook 01), as in the PSI paper.
+
+    Training: July 1-21, 2022; cross-validation: July 22-31; test: August 1-10.
+    The paper works in $/kWh and MWh, hence the default scales.
+    """
+    from ..data import load_prices
+
+    def run(prices):
+        return np.array([solve(build_stn(plant, p)).load for p in prices])
+
+    jul = load_prices("2022-07").to_numpy()
+    aug = load_prices("2022-08").to_numpy()[:10]
+    return MeterDataset(
+        price_train=jul[:21] * price_scale, load_train=run(jul[:21]) * energy_scale,
+        price_cv=jul[21:] * price_scale, load_cv=run(jul[21:]) * energy_scale,
+        price_test=aug * price_scale, load_test=run(aug) * energy_scale,
+        description=f"STN {plant.name}: train Jul 1-21, CV Jul 22-31, test Aug 1-10 (2022)",
+    )
+
+
+# --------------------------------------------------------------------------------------
+# One-day inverse problem
+# --------------------------------------------------------------------------------------
+def build_inverse_day(g: Sequence[float], T: int, dt: float, max_load: float, M: float = 1e3,
+                      target_offset: float = 100.0,
+                      target_bounds: tuple[float | None, float | None] = (0.0, None)) -> pyo.ConcreteModel:
+    """Inverse optimization for one day, with the day's data as mutable parameters.
+
+    Update ``m.price``, ``m.E_obs``, ``m.ref_*``, ``m.alpha`` and ``m.w_ref`` between
+    days and re-solve the same (persistent) model.
+
+    Priors (Section 3.4 of the thesis, as coded in the paper repo):
+    variables bounded by ``M``; only the raw-material and final-product buffers change
+    over the day (raw falls by the product gain plus ``target_offset``); and the
+    rated powers add up to the largest hourly load observed.
+    ``target_bounds`` bounds the daily final-product target (default: ``>= 0``, as in
+    the paper); see :func:`target_from_energy` for a data-derived estimate.
+    """
+    g = np.asarray(g, dtype=float)
+    N = len(g)
+    m = pyo.ConcreteModel(name="PSI inverse problem")
+    I, J, Ts, T1 = range(N), range(N + 1), range(T), range(T + 1)
+
+    # data of the current day and the reference point (mutable)
+    m.price = pyo.Param(Ts, mutable=True, initialize=0.0)
+    m.E_obs = pyo.Param(Ts, mutable=True, initialize=0.0)
+    m.alpha = pyo.Param(mutable=True, initialize=1.0)
+    m.w_ref = pyo.Param(mutable=True, initialize=0.0)  # 0 during the first pass
+    m.ref_p_max = pyo.Param(I, mutable=True, initialize=0.0)
+    m.ref_s_init = pyo.Param(J, mutable=True, initialize=0.0)
+    m.ref_s_target = pyo.Param(J, mutable=True, initialize=0.0)
+    m.ref_s_max = pyo.Param(J, mutable=True, initialize=0.0)
+
+    # unknown parameters θ
+    m.p_max = pyo.Var(I, bounds=(None, M))
+    m.s_init = pyo.Var(J, bounds=(None, M))
+    m.s_target = pyo.Var(J)
+    m.s_max = pyo.Var(J, bounds=(None, M))
+
+    # primal problem (lower level) with θ as variables
+    m.plant = pyo.Block()
+    _add_mstn(m.plant, g, T, dt, m.p_max, m.s_init, m.s_target, m.s_max)
+    P, S = m.plant.P, m.plant.S
+
+    # dual variables
+    m.mu_pmax = pyo.Var(Ts, I, bounds=(0, M))
+    m.mu_pmin = pyo.Var(Ts, I, bounds=(0, M))
+    m.mu_sT = pyo.Var(J, bounds=(0, M))
+    m.lam = pyo.Var(T1, J)
+    m.mu_smax = pyo.Var(T1, J, bounds=(0, M))
+    m.mu_smin = pyo.Var(T1, J, bounds=(0, M))
+
+    d = m.dual = pyo.ConstraintList()
+    for t in Ts:
+        for i in I:  # stationarity w.r.t. P[t, i]
+            d.add(m.price[t] * dt - m.mu_pmin[t, i] + m.mu_pmax[t, i]
+                  + g[i] * m.lam[t + 1, i] - g[i] * m.lam[t + 1, i + 1] == 0)
+        for j in J:  # stationarity w.r.t. S[t, j], t < T
+            d.add(m.lam[t, j] - m.lam[t + 1, j] - m.mu_smin[t, j] + m.mu_smax[t, j] == 0)
+    for j in J:  # stationarity w.r.t. S[T, j]
+        d.add(-m.mu_sT[j] + m.lam[T, j] - m.mu_smin[T, j] + m.mu_smax[T, j] == 0)
+
+    primal_obj = sum(m.price[t] * m.plant.load[t] for t in Ts)
+    dual_obj = (-sum(m.mu_pmax[t, i] * m.p_max[i] for t in Ts for i in I)
+                + sum(m.mu_sT[j] * (m.s_init[j] + m.s_target[j]) for j in J)
+                - sum(m.mu_smax[t, j] * m.s_max[j] for t in T1 for j in J)
+                - sum(m.lam[0, j] * m.s_init[j] for j in J))
+    m.strong_duality = pyo.Constraint(expr=dual_obj == primal_obj)  # bilinear
+
+    # priors
+    p = m.priors = pyo.ConstraintList()
+    for j in range(1, N):
+        p.add(m.s_target[j] == 0)
+    lo, hi = target_bounds
+    if lo is not None:
+        p.add(m.s_target[N] >= lo)
+    if hi is not None:
+        p.add(m.s_target[N] <= hi)
+    p.add(m.s_target[0] == -m.s_target[N] - target_offset)
+    p.add(sum(m.p_max[i] for i in I) * dt == max_load)
+
+    # objective: data fit + distance to the running reference
+    m.fit = pyo.Expression(expr=sum((m.plant.load[t] - m.E_obs[t]) ** 2 for t in Ts))
+    m.dist = pyo.Expression(expr=sum((m.p_max[i] - m.ref_p_max[i]) ** 2 for i in I)
+                            + sum((m.s_init[j] - m.ref_s_init[j]) ** 2 for j in J)
+                            + sum((m.s_target[j] - m.ref_s_target[j]) ** 2 for j in J)
+                            + sum((m.s_max[j] - m.ref_s_max[j]) ** 2 for j in J))
+    m.obj = pyo.Objective(expr=m.alpha * m.fit + m.w_ref * m.dist)
+    m._g = g
+    return m
+
+
+def theta_of(m: pyo.ConcreteModel) -> MSTNParams:
+    N = len(m._g)
+    val = lambda v, n: np.array([pyo.value(v[k]) for k in range(n)])  # noqa: E731
+    return MSTNParams(g=m._g.copy(), p_max=val(m.p_max, N), s_init=val(m.s_init, N + 1),
+                      s_target=val(m.s_target, N + 1), s_max=val(m.s_max, N + 1))
+
+
+# --------------------------------------------------------------------------------------
+# Training loop
+# --------------------------------------------------------------------------------------
+@dataclass
+class PSIHistory:
+    theta: list[MSTNParams] = field(default_factory=list)
+    fit: list[float] = field(default_factory=list)  # squared data misfit on the day solved
+    dist: list[float] = field(default_factory=list)  # squared distance to the reference
+    day: list[int] = field(default_factory=list)
+    reference: MSTNParams | None = None  # mean of the last D estimates
+    skipped: int = 0  # iterations without a feasible point
+    seconds: float = 0.0
+
+
+def target_from_energy(g: Sequence[float], loads: np.ndarray) -> float:
+    """Estimate the daily final-product target from meter data and the public ``g``.
+
+    In a serial line, each unit of product passes every machine and costs
+    ``sum(1 / g_i)`` energy, so ``target ≈ mean daily energy / sum(1 / g_i)``.
+    """
+    return float(np.atleast_2d(loads).sum(axis=1).mean() / np.sum(1 / np.asarray(g, dtype=float)))
+
+
+def train_psi(g: Sequence[float], prices: np.ndarray, loads: np.ndarray, dt: float = 1.0,
+              n_iter: int | None = None, time_limit: float = 1.0, tol: float = 1e-2,
+              target_bounds: tuple[float | None, float | None] = (0.0, None),
+              adapt_after_passes: int = 3, callback: Callable | None = None,
+              verbose: bool = False) -> tuple[MSTNParams, PSIHistory]:
+    """Identify mSTN parameters from (price, load) training days, as in the paper code.
+
+    * Iteration ``k`` solves the inverse problem of day ``k mod D`` (``D`` training days)
+      with Gurobi (``NonConvex=2``) for at most ``time_limit`` seconds, warm-started.
+    * Pass 1 (``k <= D``): fit each day alone.
+    * Afterwards: penalize the distance to the mean of the last ``D`` estimates.
+      After ``adapt_after_passes`` passes, the data-fit weight decays as ``1/sqrt(k)``.
+    * Stop when the mean distance over the last ``D`` iterations is below ``tol``,
+      or after ``n_iter`` iterations (default ``10 * D + 1``, as in the paper).
+
+    Returns the last estimate (what the paper evaluates) and the history;
+    ``history.reference`` holds the mean of the last ``D`` estimates.
+    """
+    from pyomo.contrib.appsi.solvers import Gurobi
+
+    prices, loads = np.atleast_2d(prices), np.atleast_2d(loads)
+    D, T = loads.shape
+    n_iter = n_iter if n_iter is not None else 10 * D + 1
+    m = build_inverse_day(g, T, dt, max_load=float(loads.max()), target_bounds=target_bounds)
+    opt = Gurobi()
+    opt.gurobi_options["NonConvex"] = 2
+    opt.config.time_limit = time_limit
+    opt.config.warmstart = True
+    opt.config.load_solution = False
+
+    hist = PSIHistory()
+    t0 = time.perf_counter()
+    adapt_start = None
+    ref = None
+    for k in range(n_iter):
+        d = k % D
+        for t in range(T):
+            m.price[t] = prices[d, t]
+            m.E_obs[t] = loads[d, t]
+        if adapt_start is None and k > adapt_after_passes * D:
+            adapt_start = k
+        m.alpha = 1.0 if adapt_start is None else (1 / (k - adapt_start + 1)) ** 0.5
+        m.w_ref = 0.0 if k <= D else 1.0
+        if ref is not None:
+            for name in ("p_max", "s_init", "s_target", "s_max"):
+                comp = getattr(m, f"ref_{name}")
+                for idx, v in enumerate(getattr(ref, name)):
+                    comp[idx] = v
+        res = opt.solve(m)
+        if res.best_feasible_objective is None:
+            hist.skipped += 1  # no feasible point within the time limit: skip this day
+            continue
+        res.solution_loader.load_vars()
+        theta = theta_of(m)
+        hist.theta.append(theta)
+        hist.fit.append(float(pyo.value(m.fit)))
+        hist.dist.append(float(pyo.value(m.dist)) if k > D else 1e3)
+        hist.day.append(d)
+        # reference: last estimate during pass 1, then the mean of the last D estimates
+        if k > D:
+            recent = hist.theta[-D:]
+            ref = MSTNParams(g=theta.g, **{n: np.mean([getattr(h, n) for h in recent], axis=0)
+                                           for n in ("p_max", "s_init", "s_target", "s_max")})
+        else:
+            ref = theta
+        if callback:
+            callback(k, theta, hist)
+        if verbose:
+            print(f"iter {k:3d} day {d:2d}: fit {hist.fit[-1]:9.3f}  dist {hist.dist[-1]:9.3f}")
+        if k > D and np.mean(np.abs(hist.dist[-D:])) < tol:
+            break
+    hist.seconds = time.perf_counter() - t0
+    hist.reference = ref
+    return hist.theta[-1], hist
+
+
+def nrmse(pred: np.ndarray, actual: np.ndarray) -> float:
+    """Normalized RMSE of hourly loads: RMSE divided by the maximum observed load (as in the paper)."""
+    return float(np.sqrt(np.mean((np.asarray(pred) - np.asarray(actual)) ** 2)) / np.max(actual))
