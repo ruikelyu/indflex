@@ -2,13 +2,13 @@
 
 One short (~2 minute) narrated video per paper in the chain. Every chart is drawn from indflex results, so the numbers on screen are the toolkit's own.
 
-| Script | Video |
-|---|---|
-| `lstn.py` | LSTN: a linear model of industrial production for demand response |
-| `crtn.py` | cRTN: efficient scheduling of discrete industrial processes through continuous modeling |
-| `psi.py` | PSI: production scheduling identification from smart meter data (needs Gurobi) |
-| `d3r.py` | D3R: data-driven dimension reduction for industrial load modeling |
-| `vpp.py` | Real-time operation of virtual power plants with optimal power disaggregation |
+| Script | Video | Published |
+|---|---|---|
+| `lstn.py` | LSTN: a linear model of industrial production for demand response | [YouTube](https://youtu.be/wMm-IgvIvhM) |
+| `crtn.py` | cRTN: efficient scheduling of discrete industrial processes through continuous modeling | [YouTube](https://youtu.be/RATnHWVbLwY) |
+| `psi.py` | PSI: production scheduling identification from smart meter data (needs Gurobi) | [YouTube](https://youtu.be/gpxkEAigneE) |
+| `d3r.py` | D3R: data-driven dimension reduction for industrial load modeling | [YouTube](https://youtu.be/ClJwRWYXZfI) |
+| `vpp.py` | Real-time operation of virtual power plants with optimal power disaggregation | [YouTube](https://youtu.be/dFsv5i7JZIM) |
 
 ## Rendering
 

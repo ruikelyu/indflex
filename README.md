@@ -65,13 +65,13 @@ bids = bid(case)                                                 # LP; bids.lam 
 
 | Step | Paper | Original code | Video |
 |---|---|---|---|
-| LSTN | R. Lyu et al., *IEEE ISGT Europe*, 2023 ([slides](https://github.com/ruikelyu/indflex/releases/tag/slides-lstn-isgt2023)) | [`matlab/lstn/`](matlab/lstn) | |
-| cRTN | R. Lyu et al., "Efficient Scheduling of Discrete Industrial Processes through Continuous Modeling," *IEEE Trans. Smart Grid*, in press ([link](https://ieeexplore.ieee.org/document/11082423)) | [repo](https://github.com/ruikelyu/Efficient-Scheduling-of-Discrete-Industrial-Processes) | [Bilibili](https://www.bilibili.com/video/BV1cdurzbEgi) |
-| PSI | R. Lyu et al., "Production Scheduling Identification…," *IEEE Trans. Smart Grid* 16(2), 2025 | [repo](https://github.com/ruikelyu/Production-Scheduling-Identification) | [Bilibili](https://www.bilibili.com/video/BV1bXQDYcE8Y) |
-| D3R | R. Lyu et al., "Data-Driven Dimension Reduction for Industrial Load Modeling Using Inverse Optimization," *IEEE Trans. Smart Grid* 16(3), 2025 | [repo](https://github.com/ruikelyu/Data-Driven-Dimension-Reduction) | [Bilibili](https://www.bilibili.com/video/BV1JFQ1YwEsK) |
-| VPP | Q. Chen, R. Lyu et al., "Real-Time Operation Strategy of Virtual Power Plants With Optimal Power Disaggregation Among Heterogeneous Resources," *Applied Energy* 361, 2024 | [repo](https://github.com/ruikelyu/Real-time-operation-strategy-of-virtual-power-plants) | [Bilibili](https://www.bilibili.com/video/BV1CpQDYDE67) |
+| LSTN | R. Lyu et al., *IEEE ISGT Europe*, 2023 ([slides](https://github.com/ruikelyu/indflex/releases/tag/slides-lstn-isgt2023)) | [`matlab/lstn/`](matlab/lstn) | [YouTube](https://youtu.be/wMm-IgvIvhM) |
+| cRTN | R. Lyu et al., "Efficient Scheduling of Discrete Industrial Processes through Continuous Modeling," *IEEE Trans. Smart Grid*, in press ([link](https://ieeexplore.ieee.org/document/11082423)) | [repo](https://github.com/ruikelyu/Efficient-Scheduling-of-Discrete-Industrial-Processes) | [YouTube](https://youtu.be/RATnHWVbLwY) · [Bilibili](https://www.bilibili.com/video/BV1cdurzbEgi) |
+| PSI | R. Lyu et al., "Production Scheduling Identification…," *IEEE Trans. Smart Grid* 16(2), 2025 | [repo](https://github.com/ruikelyu/Production-Scheduling-Identification) | [YouTube](https://youtu.be/gpxkEAigneE) · [Bilibili](https://www.bilibili.com/video/BV1bXQDYcE8Y) |
+| D3R | R. Lyu et al., "Data-Driven Dimension Reduction for Industrial Load Modeling Using Inverse Optimization," *IEEE Trans. Smart Grid* 16(3), 2025 | [repo](https://github.com/ruikelyu/Data-Driven-Dimension-Reduction) | [YouTube](https://youtu.be/ClJwRWYXZfI) · [Bilibili](https://www.bilibili.com/video/BV1JFQ1YwEsK) |
+| VPP | Q. Chen, R. Lyu et al., "Real-Time Operation Strategy of Virtual Power Plants With Optimal Power Disaggregation Among Heterogeneous Resources," *Applied Energy* 361, 2024 | [repo](https://github.com/ruikelyu/Real-time-operation-strategy-of-virtual-power-plants) | [YouTube](https://youtu.be/dFsv5i7JZIM) · [Bilibili](https://www.bilibili.com/video/BV1CpQDYDE67) |
 
-The paper repositories remain the reference for reproducing each paper exactly; this toolkit holds the teaching versions. [Reproducibility notes](docs/notes_on_paper_code.md) list the differences and pitfalls found while porting.
+The YouTube videos are two-minute English explainers rendered by `tools/videos/`. The paper repositories remain the reference for reproducing each paper exactly; this toolkit holds the teaching versions. [Reproducibility notes](docs/notes_on_paper_code.md) list the differences and pitfalls found while porting.
 
 ## Repository layout
 
