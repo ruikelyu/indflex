@@ -20,8 +20,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "jupyter", "nbconvert", "ipykernel", "ipywidgets"]
-gurobi = ["gurobipy"]  # needs a Gurobi license (free for academics)
+dev = ["pytest", "jupyter", "nbconvert", "ipykernel", "ipywidgets", "scikit-learn"]
+gurobi = ["gurobipy"]  # needs a full Gurobi license (free for academics); required by indflex.identify
 legacy = ["openpyxl", "scipy"]  # only for tools/convert_legacy_data.py
 
 [tool.hatch.build.targets.wheel]
