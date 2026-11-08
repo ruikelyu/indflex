@@ -3,7 +3,7 @@
 Source: https://github.com/ruikelyu/Real-time-operation-strategy-of-virtual-power-plants
 (data_prepare/param_day_21.mat). Run:
 
-    python tools/convert_vpp_data.py /path/to/Real-time-operation-strategy-of-virtual-power-plants
+    python tools/convert/vpp_data.py /path/to/Real-time-operation-strategy-of-virtual-power-plants
 
 Writes data/vpp/vpp_day21.json (resources, prices, signal statistics) and
 data/vpp/regd_day21.csv (PJM RegD signal, one value per 2 s).
@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import scipy.io as sio
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def main(repo: str):

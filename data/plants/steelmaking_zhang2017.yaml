@@ -1,4 +1,4 @@
-# Converted from RTN_Implementation/load_parameters_zhang_rtn.xlsx
+# Converted from matlab/rtn/load_parameters_zhang_rtn.xlsx
 name: steelmaking_zhang2017
 kind: batch
 description: Secondary steelmaking line with a power-flexible electric arc furnace (EAF), 4 serial stages.

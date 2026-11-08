@@ -1,5 +1,8 @@
 name: tests
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]  # PR branches are covered by pull_request (avoids duplicate runs)
+  pull_request:
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -10,3 +13,40 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
       - run: pytest -q
+
+  package:
+    # the installed package (not just a checkout) must find its data
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build && python -m build --wheel
+      - run: pip install dist/*.whl
+      - name: Smoke test outside the checkout
+        working-directory: /tmp
+        run: |
+          python -c "
+          import indflex as fx
+          from indflex.coordinate import load_vpp_case
+          r = fx.solve(fx.build_lstn(fx.load_plant('cement_golmohamadi2020'), fx.daily_price('2022-07', 1)))
+          assert r.status == 'optimal', r.status
+          assert load_vpp_case().n == 135
+          print('installed package OK:', fx.data.DATA_DIR)
+          "
+
+  notebooks:
+    # notebook 03 needs a Gurobi license and is not run here
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        notebook: [01_stn_vs_lstn, 02_rtn_vs_crtn, 04_d3r, 05_vpp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=1200 --output-dir /tmp notebooks/${{ matrix.notebook }}.ipynb

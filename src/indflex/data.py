@@ -1,6 +1,7 @@
 """Plant parameters and electricity prices.
 
-All inputs live as plain text under ``data/`` at the repository root:
+All inputs live as plain text under ``data/`` at the repository root (and are copied
+into the installed package as ``indflex/_data``):
 
 * ``data/plants/<name>.yaml``  - serial continuous-process plants (STN/LSTN)
 * ``data/prices/pjm_rt_2022_07.csv`` - PJM real-time prices, $/MWh, hourly
@@ -16,7 +17,8 @@ import numpy as np
 import pandas as pd
 import yaml
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+_PACKAGED = Path(__file__).resolve().parent / "_data"  # installed package (see pyproject.toml)
+DATA_DIR = _PACKAGED if _PACKAGED.is_dir() else Path(__file__).resolve().parents[2] / "data"  # source checkout
 
 
 @dataclass(frozen=True)

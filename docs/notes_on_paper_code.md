@@ -4,8 +4,8 @@ While porting, every Python model was checked against the original MATLAB/YALMIP
 
 ## Process models (STN, LSTN, RTN, cRTN)
 
-* **Two versions of the steel powder parameters.** `STN_Implementation/load_parameters_Lu_milp.xlsx` gives the Separator 10 t/h; `LSTN_matlab/load_parameters_Lu_milp.xlsx` gives 15 t/h. The PSI and D3R datasets use the 10 t/h version (`data/plants/steel_powder_lu2021.yaml`); the LSTN paper code uses 15 t/h (`steel_powder_lu2021_lstn.yaml`).
-* **Missing script.** `LSTN_matlab/data_generate_parameters.m` calls `load_primal_problem_milp`, which is not in this repository (it is in the PSI repository's `data_prepare/`).
+* **Two versions of the steel powder parameters.** `matlab/stn/load_parameters_Lu_milp.xlsx` gives the Separator 10 t/h; `matlab/lstn/load_parameters_Lu_milp.xlsx` gives 15 t/h. The PSI and D3R datasets use the 10 t/h version (`data/plants/steel_powder_lu2021.yaml`); the LSTN paper code uses 15 t/h (`steel_powder_lu2021_lstn.yaml`).
+* **Missing script.** `matlab/lstn/data_generate_parameters.m` calls `load_primal_problem_milp`, which is not in this repository (it is in the PSI repository's `data_prepare/`).
 * **RTN with one heat.** In the RTN of the cRTN paper code, `sum(S_HT(:,:)) <= 1` is meant to allow one heat melting per slot. With one heat, `S_HT` is a 1×T row and MATLAB sums it over time, so only one melting slot is allowed in total and the case is reported infeasible. The toolkit applies the limit per slot (`tests/test_batch_models.py`).
 * **YALMIP + Gurobi options.** Setting any `gurobi.*` option through `sdpsettings` can pass `TuneTimeLimit = -1`, which recent Gurobi versions reject (error 10008). The paper code sets `ops.gurobi.TuneTimeLimit` explicitly; scripts that don't will fail.
 
