@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 import indflex as fx
-from indflex.identify import MSTNParams, make_meter_dataset, nrmse, simulate, train_psi
+from indflex.identify import MSTNParams, make_meter_dataset, nrmse, simulate
 from indflex.identify.psi import target_from_energy
 
 FIX = Path(__file__).parent / "fixtures" / "psi"
@@ -64,9 +64,27 @@ def test_mstn_forward_meets_target():
 
 @needs_gurobi
 def test_identifies_toy_plant():
+    """One inverse solve (to optimality) on one day recovers the toy plant, as in notebook 03.
+
+    The iterative trainer uses short time limits, so its result depends on machine load;
+    it is exercised in the notebook rather than here.
+    """
+    from pyomo.contrib.appsi.solvers import Gurobi
+
+    from indflex.identify import build_inverse_day
+    from indflex.identify.psi import theta_of
+
     jul = fx.load_prices("2022-07").to_numpy() / 1000
     aug = fx.load_prices("2022-08").to_numpy()[:5] / 1000
-    theta, hist = train_psi(TOY.g, jul[:10], simulate(TOY, jul[:10]), n_iter=22)
-    np.testing.assert_allclose(theta.p_max, TOY.p_max, rtol=1e-2)
-    assert theta.s_target[-1] == pytest.approx(30, rel=1e-2)
-    assert nrmse(simulate(theta, aug), simulate(TOY, aug)) < 0.01
+    meter = simulate(TOY, jul[:10])
+    m = build_inverse_day(TOY.g, 24, 1.0, float(meter.max()))
+    for t in range(24):
+        m.price[t], m.E_obs[t] = jul[0, t], meter[0, t]
+    opt = Gurobi()
+    opt.gurobi_options["NonConvex"] = 2
+    opt.config.time_limit = 60
+    assert opt.solve(m).termination_condition.name == "optimal"
+    theta = theta_of(m)
+    np.testing.assert_allclose(theta.p_max, TOY.p_max, rtol=1e-3)
+    assert theta.s_target[-1] == pytest.approx(30, rel=1e-3)
+    assert nrmse(simulate(theta, aug), simulate(TOY, aug)) < 1e-3

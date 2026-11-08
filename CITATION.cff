@@ -1,11 +1,11 @@
 cff-version: 1.2.0
 message: "If you use this toolkit, please cite it and the paper for the method you use."
-title: "Industrial User Modeling Toolkit"
+title: "indflex: industrial demand flexibility from process models to grid decisions"
 type: software
 authors:
   - family-names: Lyu
     given-names: Ruike
-repository-code: "https://github.com/ruikelyu/Industrial-User-Modeling-Toolkit"
+repository-code: "https://github.com/ruikelyu/indflex"
 license: MIT
 references:
   - type: article

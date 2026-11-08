@@ -1,4 +1,4 @@
-"""indflex: industrial load flexibility, from process models to grid decisions.
+"""indflex — industrial demand flexibility: from process models to grid decisions.
 
 The chain (one subpackage per step of the thesis):
 

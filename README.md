@@ -1,4 +1,8 @@
-# Industrial User Modeling Toolkit
+# indflex
+
+**Industrial demand flexibility: from process models to grid decisions.**
+
+*(formerly the Industrial User Modeling Toolkit)*
 
 Open models and teaching notebooks for **industrial demand flexibility**: how to model what a factory can do, learn it from meter data, compress it, and operate it together with other flexible resources. The toolkit follows the chain of the PhD thesis *Industrial Load Modeling and Optimization for Market-Based Interaction with Power Systems* (Ruike Lyu, Tsinghua University) and its papers. Every step has a Python implementation checked against the original paper code, and an interactive notebook that runs in seconds to a few minutes.
 
@@ -28,8 +32,8 @@ Each step has a concept page in [`docs/`](docs/README.md): the idea, what the mo
 ## Quickstart
 
 ```bash
-git clone https://github.com/ruikelyu/Industrial-User-Modeling-Toolkit.git
-cd Industrial-User-Modeling-Toolkit
+git clone https://github.com/ruikelyu/indflex.git
+cd indflex
 pip install -e ".[dev]"            # add ",gurobi" for notebook 03
 jupyter lab notebooks/
 ```
@@ -99,7 +103,9 @@ The folders below contain the original MATLAB implementations of State-Task Netw
 
 Feel free to raise issues or submit PRs if you have any questions or suggestions. Thank you for your interest and support!
 
-# 工业建模工具包
+# indflex：工业需求侧灵活性工具包
+
+**从工业过程模型到电网决策。**（原名 Industrial User Modeling Toolkit）
 
 ## 简介
 本工具包提供工业用户需求侧灵活性的开源模型和交互式教学笔记本，覆盖博士论文 *Industrial Load Modeling and Optimization for Market-Based Interaction with Power Systems*（清华大学）的完整技术链条：
