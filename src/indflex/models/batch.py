@@ -154,8 +154,15 @@ def build_crtn(plant: BatchPlant, price: Sequence[float], n_heats: int, dt: floa
 # --------------------------------------------------------------------------------------
 # Conventional RTN with a flexible EAF
 # --------------------------------------------------------------------------------------
-def build_rtn(plant: BatchPlant, price: Sequence[float], n_heats: int, dt: float = 1.0) -> pyo.ConcreteModel:
-    """Conventional RTN (binary task starts per heat), with a power-flexible first stage."""
+def build_rtn(plant: BatchPlant, price: Sequence[float], n_heats: int, dt: float = 1.0,
+              tie_break: float = 0.0) -> pyo.ConcreteModel:
+    """Conventional RTN (binary task starts per heat), with a power-flexible first stage.
+
+    ``tie_break > 0`` adds ``tie_break * sum(t * N[i, t])`` to the objective, which picks the
+    earliest task starts among equally cheap schedules (for example, when a transfer can
+    happen at any time at no cost). The paper code uses a quadratic term for the same purpose.
+    The reported cost (``m.energy_cost``) excludes it.
+    """
     price = np.asarray(price, dtype=float)
     T = len(price)
     n, H = plant.n_stages, n_heats
@@ -260,7 +267,8 @@ def build_rtn(plant: BatchPlant, price: Sequence[float], n_heats: int, dt: float
 
     m.stage_energy = pyo.Expression(range(n), Ts, rule=stage_energy)
     m.net_load = pyo.Expression(m.T, rule=lambda m, t: sum(m.stage_energy[j, t] for j in range(n)))
-    m.cost = pyo.Objective(expr=sum(price[t] * m.net_load[t] for t in Ts))
+    m.energy_cost = pyo.Expression(expr=sum(price[t] * m.net_load[t] for t in Ts))
+    m.cost = pyo.Objective(expr=m.energy_cost + tie_break * sum(t * m.N[i, t] for i in range(n_task) for t in Ts))
     m._rtn = {"task_proc": task_proc, "slots": ps, "n_heats": H}
     m._meta = {"kind": "rtn", "plants": [plant], "price": price, "dt": dt, "n_heats": n_heats,
                "detail": _stage_energy_detail, "energy_unit": "MWh"}

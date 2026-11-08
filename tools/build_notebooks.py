@@ -231,25 +231,28 @@ plt.tight_layout(); plt.show()
 In **scenario 2**, the cheap hours are 0–2 and 5. The cRTN melts both heats at high power in the first three hours (1.5 h each, so two heats in 3 h) for **\$400**. The RTN can only start and finish tasks on slot boundaries: a 1.5 h melt is rounded up to 2 slots, so the second heat spills into an expensive hour and the cost rises to **\$466.67**. In the paper, this rounding error grows with the number of stages.
 
 **Inside the two models.** The figure below follows the illustration in the thesis (Ch. 2, Figs. "Scheduling results of cRTN" and "Rounding error in the RTN model"). The RTN marks the furnace as busy for whole slots. The cRTN tracks the *progress* of the current heat, which rises from 0 to 1 and resets when the heat is output, so a heat can finish in the middle of a slot.
+
+For these two figures, scenario 2 gets two extra expensive hours (200 $/MWh) at the end, so that every heat's delivery fits inside the plot; the schedules and costs are unchanged. The RTN also gets a tiny tie-breaker that prefers earlier task starts, because the timing of a free transfer is otherwise arbitrary (the paper code uses a quadratic term for the same purpose).
 """),
     code(r"""
 import pyomo.environ as pyo
 from indflex.models import crtn_progress, heat_schedule
 
-price = scenarios["scenario 2"]
-m_rtn, m_crtn = fx.build_rtn(small, price, 2), fx.build_crtn(small, price, 2)
-fx.solve(m_rtn); fx.solve(m_crtn)
+price = np.r_[scenarios["scenario 2"], 200, 200]  # 8 hours
+T = len(price)
+m_rtn, m_crtn = fx.build_rtn(small, price, 2, tie_break=1e-2), fx.build_crtn(small, price, 2)
+rtn_res, crtn_res = fx.solve(m_rtn, mip_gap=0), fx.solve(m_crtn)
 
 fig, axes = plt.subplots(2, 1, figsize=(9, 5), sharex=True)
 for ax in axes:  # price background
-    ax2 = ax.twinx(); ax2.fill_between(range(7), np.append(price, price[-1]), step="post", color="grey", alpha=0.15)
+    ax2 = ax.twinx(); ax2.fill_between(range(T + 1), np.append(price, price[-1]), step="post", color="grey", alpha=0.15)
     ax2.set_ylim(0, 220); ax2.set_ylabel("price ($/MWh)", color="grey")
 
 # RTN: melting status of each heat, whole slots only
 for h in range(2):
-    status = [pyo.value(m_rtn.S[h, t]) for t in range(6)]
-    axes[0].step(range(7), status + [status[-1]], where="post", lw=2.5, label=f"heat {h + 1}")
-axes[0].set(ylabel="melting\n(RTN status)", ylim=(-0.1, 1.3), title=f"RTN: ${fx.solve(m_rtn).cost:,.2f}")
+    status = [pyo.value(m_rtn.S[h, t]) for t in range(T)]
+    axes[0].step(range(T + 1), status + [status[-1]], where="post", lw=2.5, label=f"heat {h + 1}")
+axes[0].set(ylabel="melting\n(RTN status)", ylim=(-0.1, 1.3), title=f"RTN: ${rtn_res.cost:,.2f}")
 axes[0].legend(fontsize=8, loc="upper right")
 
 # cRTN: melting progress of the current heat
@@ -257,7 +260,7 @@ t, prog = crtn_progress(m_crtn, stage=0)
 axes[1].plot(t, prog, color="tab:orange", lw=2.5)
 for r in heat_schedule(m_crtn).itertuples():
     axes[1].annotate(f"heat {r.heat} done", (r.end, 1), xytext=(r.end - 0.2, 1.15), fontsize=8, ha="right")
-axes[1].set(ylabel="melting progress\n(cRTN)", ylim=(-0.1, 1.3), xlabel="Hour", title=f"cRTN: ${fx.solve(m_crtn).cost:,.2f}")
+axes[1].set(ylabel="melting progress\n(cRTN)", ylim=(-0.1, 1.3), xlabel="Hour", title=f"cRTN: ${crtn_res.cost:,.2f}")
 
 # rounding error: the second heat really finishes at 3.0 h, the RTN can only finish at a slot boundary
 rtn_end = heat_schedule(m_rtn)["end"].max()
@@ -273,7 +276,6 @@ How to read it: the RTN's molten iron-s stays at 0 because a finished heat is tr
     code(r"""
 from matplotlib.gridspec import GridSpec
 
-T = 6
 hours = np.arange(T + 1)
 fig = plt.figure(figsize=(12, 7.5))
 gs = GridSpec(8, 2, figure=fig, hspace=0.15, wspace=0.25)
@@ -315,7 +317,7 @@ crtn_rows = [
     ("molten iron-d\n(input, heats)", (hours, [pyo.value(m_crtn.R[3, t]) for t in hours]), "tab:green"),
 ]
 for k, (label, (x, y), color) in enumerate(crtn_rows):
-    ax = fig.add_subplot(gs[2 * k:2 * k + 2, 1])
+    ax = fig.add_subplot(gs[k, 1])  # same row height as the RTN: the column is half as tall
     if k == 0:
         ax.plot(x, y, color=color, lw=2); ax.set_ylim(-0.1, 1.2); ax.set_yticks([0, 1])
     else:  # levels at slot boundaries
@@ -328,6 +330,8 @@ for k, (label, (x, y), color) in enumerate(crtn_rows):
     if k == 0:
         ax.set_title(f"cRTN: shared by all heats (4 lines, {fx.count_vars(m_crtn)[0]} binaries)")
 ax.set_xlabel("Hour")
+fig.text(0.73, 0.28, "no extra lines needed:\nthe cRTN's size does not\ndepend on the number of heats",
+         ha="center", va="center", fontsize=10, color="grey", style="italic")
 plt.show()
 """),
     md(r"""
@@ -786,7 +790,151 @@ For the steelmaking line of notebook 02, the paper replaces **10,208 integer var
 **Takeaways**
 * D3R learns reduced constraints from the detailed model's *optimal responses*, using the same inverse-optimization idea as PSI.
 * An adjustable load fleet captures the main features of industrial flexibility with a handful of numbers, and it fits in any LP.
-* Next in the chain: put reduced plant models into a grid model → **notebook 05: grid co-optimization**.
+* Next in the chain: operate many flexible resources together → **notebook 05: virtual power plant**.
+"""),
+]
+
+NB05 = [
+    md(r"""
+# 05 · Virtual power plant: bidding for regulation and splitting the signal in microseconds
+
+**Where this sits in the chain:** process model → parameter identification → dimension reduction → *grid/aggregator optimization*.
+
+A virtual power plant (VPP) pools many small, different resources (EVs, storage, air conditioning, industrial production stages, PV) and sells **energy** and **frequency regulation** in the market. It decides on two time scales:
+
+1. **Bidding (every 30 min).** An LP over the rest of the day chooses hourly energy and regulation bids. The regulation signal is uncertain, so the LP plans every resource's power under signal scenarios $d_s \in [-1, 1]$ with their probabilities.
+2. **Disaggregation (every 2 s).** The grid operator sends a signal $\delta$, and the VPP must deliver $P^{\rm req} = P^{\rm bid} + R^{\rm bid}\,\delta$ immediately, split among its resources. Re-solving an optimization every 2 s is too slow. The trick: the bidding LP's **dual variables** $\lambda_i$ (the value of the energy stored in resource $i$) give every resource a constant marginal cost. Sorting resources by that cost gives a **merit order**, and filling it up to $P^{\rm req}$ solves the split exactly.
+
+*Reference:* Q. Chen, R. Lyu, H. Guo, X. Su, "Real-Time Operation Strategy of Virtual Power Plants With Optimal Power Disaggregation Among Heterogeneous Resources," *Applied Energy* 361 (2024) 122876; thesis Ch. 5; paper code: [Real-time-operation-strategy-of-virtual-power-plants](https://github.com/ruikelyu/Real-time-operation-strategy-of-virtual-power-plants).
+
+Everything here runs with the free HiGHS solver.
+"""),
+    code(r"""
+import time
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from indflex.coordinate import load_vpp_case, bid, merit_order, allocate, allocate_lp, simulate_hour
+
+plt.rcParams["figure.dpi"] = 110
+KINDS = ["EV", "ES", "TCL", "IPP", "PV"]
+COLORS = {"EV": "tab:blue", "ES": "tab:purple", "TCL": "tab:green", "IPP": "tab:orange", "PV": "gold"}
+LABELS = {"EV": "EVs", "ES": "storage", "TCL": "air conditioning", "IPP": "industrial stages", "PV": "PV"}
+"""),
+    md(r"""
+## 1. The resources
+
+One day of the paper's case (PJM prices and RegD signal). Every resource uses the same *standardized model*: discharge and charge power limits, an energy state with self-loss and efficiencies, external drift (heat gains for air conditioning), and usage costs. For industrial stages, the "energy" is the material in the buffer after the stage: running stage $i$ fills its buffer and drains the one before it.
+"""),
+    code(r"""
+case = load_vpp_case("day21")
+kind = np.array(case.kind)
+print(case.description)
+display(pd.Series(kind).value_counts().rename("count").to_frame())
+
+hours = np.arange(case.T)
+fig, ax = plt.subplots(figsize=(10, 3.6))
+up, down = np.zeros(case.T), np.zeros(case.T)
+for k in KINDS:
+    dis = case.p_dis_upper[kind == k].sum(axis=0)
+    ch = case.p_ch_upper[kind == k].sum(axis=0)
+    ax.bar(hours, dis, bottom=up, color=COLORS[k], label=LABELS[k]); up += dis
+    ax.bar(hours, -ch, bottom=-down, color=COLORS[k]); down += ch
+ax.axhline(0, color="black", lw=0.8)
+ax.set(xlabel="Hour", ylabel="MW", title="Maximum discharge (up) and charge (down) power by resource type")
+ax.set_ylim(-down.max() * 1.1, up.max() * 1.35)
+ax.legend(fontsize=8, ncol=5); plt.show()
+"""),
+    md(r"""
+## 2. Bidding: one LP for the day
+
+The LP maximizes energy revenue plus regulation capacity and mileage revenue, minus usage costs, over 22 signal scenarios. It keeps every resource within its limits in every scenario, and keeps enough stored energy to sustain the full signal for 30 minutes.
+"""),
+    code(r"""
+day_ahead = bid(case)
+print(f"solved in {day_ahead.seconds:.1f} s, expected profit ${day_ahead.profit:,.0f}")
+
+fig, ax = plt.subplots(figsize=(10, 3.6))
+ax.bar(hours - 0.2, day_ahead.bid_p, width=0.4, color="tab:gray", label="energy bid (MW, + = sell)")
+ax.bar(hours + 0.2, day_ahead.bid_r, width=0.4, color="tab:red", label="regulation capacity bid (MW)")
+ax.axhline(0, color="black", lw=0.8); ax.set(xlabel="Hour", ylabel="MW", ylim=(-7, 9)); ax.legend(fontsize=8, loc="upper left")
+ax2 = ax.twinx()
+ax2.plot(hours, case.price_e, "k--", lw=1.5, label="energy price")
+ax2.plot(hours, case.price_reg[:, 0], ":", color="tab:red", lw=2, label="regulation capacity price")
+ax2.set_ylabel("$/MWh"); ax2.legend(fontsize=8, loc="upper right")
+plt.title("Hourly bids"); plt.show()
+"""),
+    md(r"""
+The VPP buys energy (negative bids) mainly to charge EVs, and sells regulation capacity in every hour.
+
+## 3. From duals to a merit order
+
+At the start of each half hour the VPP re-solves the bidding LP from its current state. The dual of "energy now = measured energy" is $\lambda_i = \partial\,\text{profit}/\partial E_i$, the value of one more unit stored in resource $i$. With it, every resource becomes two **power segments** with constant marginal costs:
+
+* discharging: usage cost $+$ the value of the stored energy it uses;
+* charging (negative power): $-$usage cost $+$ the value of the energy it stores.
+
+Sorted by cost, the segments form a supply curve. Following the signal means moving along this curve. In hour 1 (midnight) no EVs are connected yet, so air conditioning, storage and the industrial stages provide the flexibility.
+"""),
+    code(r"""
+rebid = bid(case, cur_slot=0, E_cur=case.energy_init, bid_cur=(day_ahead.bid_p[0], day_ahead.bid_r[0]), rest=1.0)
+seg = merit_order(case, rebid.lam, case.energy_init, slot=0, p_none_reg=rebid.p_none_reg)
+
+base = seg.p_lo.sum()  # every segment at its lower bound
+x = base + np.r_[0, np.cumsum(seg.p_hi - seg.p_lo)]
+fig, ax = plt.subplots(figsize=(10, 4))
+for k in range(len(seg.cost)):
+    if seg.p_hi[k] - seg.p_lo[k] > 1e-9:
+        ax.fill_between([x[k], x[k + 1]], 0, seg.cost[k], step="pre", color=COLORS[kind[seg.der[k]]], alpha=0.85, lw=0)
+for k in KINDS:  # legend only for types with flexible power this hour
+    if any((kind[seg.der] == k) & (seg.p_hi - seg.p_lo > 1e-9)):
+        ax.fill_between([], [], color=COLORS[k], label=LABELS[k])
+bp, br = day_ahead.bid_p[0], day_ahead.bid_r[0]
+ax.axvspan(bp - br, bp + br, color="grey", alpha=0.15, label="range of $P^{req}$ this hour")
+ax.axvline(bp, color="black", ls="--", lw=1, label="energy bid ($\\delta = 0$)")
+ax.set(xlabel="VPP output (MW, + = injection)", ylabel="marginal cost ($/MWh)",
+       title="Merit order of the VPP's resources (hour 1)")
+ax.legend(fontsize=8, loc="upper left"); plt.show()
+"""),
+    md(r"""
+## 4. Following the regulation signal for one hour
+
+Every 2 s: $P^{\rm req} = P^{\rm bid} + R^{\rm bid}\delta$, filled along the merit order. Every minute the merit order is rebuilt from the updated energy states. (The paper also re-bids every 30 minutes; for clarity this hour uses one re-bid.)
+"""),
+    code(r"""
+hour = simulate_hour(case, 0, bp, br, rebid.lam, case.energy_init, rebid.p_none_reg)
+net = hour.p_dis - hour.p_ch
+t_min = np.arange(len(hour.p_req)) * 2 / 60
+
+fig, axes = plt.subplots(2, 1, figsize=(11, 6), sharex=True)
+axes[0].plot(t_min, hour.p_req, color="black", lw=1.2, label="requested $P^{req}$")
+axes[0].plot(t_min, net.sum(axis=0), "--", color="tab:red", lw=1, label="delivered (sum of resources)")
+axes[0].set(ylabel="MW", title=f"Signal following, {1e6 * hour.alloc_seconds:.0f} µs per allocation"); axes[0].legend(fontsize=8)
+for k in KINDS:
+    axes[1].plot(t_min, net[kind == k].sum(axis=0), color=COLORS[k], lw=1.2, label=LABELS[k])
+axes[1].axhline(0, color="black", lw=0.6)
+axes[1].set(xlabel="Minute", ylabel="MW", title="Who follows the signal"); axes[1].legend(fontsize=8, ncol=5)
+plt.tight_layout(); plt.show()
+"""),
+    md(r"""
+**Why not just solve an LP every 2 s?** The merit-order fill *is* the solution of the disaggregation LP (minimize the total marginal cost subject to delivering $P^{\rm req}$), computed without a solver:
+"""),
+    code(r"""
+rows = []
+for delta in case.signal[:20]:
+    req = bp + br * delta
+    t0 = time.perf_counter(); fast = allocate(seg, req); t_fast = time.perf_counter() - t0
+    t0 = time.perf_counter(); lp = allocate_lp(seg, req); t_lp = time.perf_counter() - t0
+    rows.append({"cost gap": seg.cost @ fast - seg.cost @ lp, "merit order (ms)": 1e3 * t_fast, "LP (ms)": 1e3 * t_lp})
+pd.DataFrame(rows).describe().loc[["mean", "max"]].round(4)
+"""),
+    md(r"""
+**A note on the paper code.** For coupled resources (industrial stages), the energy update is $E' = \eta\,p$, so the value of running resource $j$ is $(\eta^\top\lambda)_j$. The paper code uses $(\eta\lambda)_j$. The toolkit uses $\eta^\top\lambda$ by default, and `merit_order(..., eta_convention="paper")` reproduces the paper code exactly (see `tests/test_vpp.py`). The two differ only for the industrial stages; in our tests the transposed version is never more expensive.
+
+**Takeaways**
+* A VPP turns heterogeneous resources into one market participant through a standardized resource model and a scenario-based bidding LP.
+* The bidding LP's duals price each resource's stored energy, which turns real-time disaggregation into a merit order: optimal, and microseconds instead of milliseconds.
+* In the chain, reduced industrial models (notebook 04) are exactly the kind of resource such a VPP, or a grid model, can carry.
 """),
 ]
 
@@ -795,7 +943,7 @@ def main(only=None):
     """Write the notebooks (without outputs). ``only``: list of name prefixes, e.g. ["03"]."""
     out = ROOT / "notebooks"
     out.mkdir(exist_ok=True)
-    for fname, cells in [("01_stn_vs_lstn.ipynb", NB01), ("02_rtn_vs_crtn.ipynb", NB02), ("03_psi.ipynb", NB03), ("04_d3r.ipynb", NB04)]:
+    for fname, cells in [("01_stn_vs_lstn.ipynb", NB01), ("02_rtn_vs_crtn.ipynb", NB02), ("03_psi.ipynb", NB03), ("04_d3r.ipynb", NB04), ("05_vpp.ipynb", NB05)]:
         if only and not any(fname.startswith(o) for o in only):
             continue
         nb = nbf.v4.new_notebook(cells=cells)

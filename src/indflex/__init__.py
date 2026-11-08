@@ -5,7 +5,7 @@ The chain (one subpackage per step of the thesis):
 1. ``indflex.models``    - STN / LSTN (continuous) and RTN / cRTN (batch) models (Ch. 2)
 2. ``indflex.identify``  - parameter identification from meter data, PSI (Ch. 3)
 3. ``indflex.reduce``    - data-driven dimension reduction, D3R      (Ch. 4)
-4. ``indflex.coordinate``- grid / aggregator optimization            (Ch. 4-5, planned)
+4. ``indflex.coordinate``- VPP bidding and real-time disaggregation  (Ch. 5)
 """
 
 from .data import (BatchPlant, BatchStage, Mode, Plant, Stage, daily_price, list_plants, load_batch_plant,
@@ -13,7 +13,7 @@ from .data import (BatchPlant, BatchStage, Mode, Plant, Stage, daily_price, list
 from .models import build_crtn, build_fleet, build_lstn, build_rtn, build_stn
 from .solve import Result, count_vars, solve
 
-from . import identify, reduce  # noqa: E402  (steps 2 and 3 of the chain)
+from . import coordinate, identify, reduce  # noqa: E402  (steps 2-4 of the chain)
 
 __version__ = "0.1.0"
 

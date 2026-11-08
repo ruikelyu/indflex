@@ -78,4 +78,5 @@ def solve(m: pyo.ConcreteModel, solver: str = "highs", time_limit: float | None 
     load = np.array([pyo.value(m.net_load[t]) for t in T])
     detail = m._meta.get("detail")
     energy, storage = detail(m) if detail else (None, None)
-    return Result(status, float(pyo.value(m.cost)), load, energy, storage, seconds, nb, nc, unit)
+    cost = m.energy_cost if hasattr(m, "energy_cost") else m.cost  # excludes tie-breaking terms
+    return Result(status, float(pyo.value(cost)), load, energy, storage, seconds, nb, nc, unit)

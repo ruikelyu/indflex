@@ -88,3 +88,11 @@ def test_heat_schedule_small_case():
     fx.solve(m)
     ends = sorted(heat_schedule(m)["end"])
     assert ends == [2.0, 4.0]  # whole slots: the second heat finishes in an expensive hour
+
+
+def test_rtn_tie_break_keeps_energy_cost():
+    plant = fx.load_batch_plant("eaf_small_case")
+    price = np.r_[np.loadtxt(FIX / "small_s2_price.csv", delimiter=","), 200, 200]
+    plain = fx.solve(fx.build_rtn(plant, price, 2), mip_gap=0)
+    tied = fx.solve(fx.build_rtn(plant, price, 2, tie_break=1e-2), mip_gap=0)
+    assert tied.cost == pytest.approx(plain.cost, abs=1e-6)  # reported cost excludes the tie-breaker
