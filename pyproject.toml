@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "indflex"
+version = "0.1.0"
+description = "Industrial load flexibility: process models (STN/LSTN/RTN/cRTN), parameter identification, dimension reduction, and grid coordination"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Ruike Lyu" }]
+requires-python = ">=3.10"
+dependencies = [
+  "pyomo>=6.7",
+  "highspy>=1.7",
+  "numpy",
+  "pandas",
+  "pyyaml",
+  "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "jupyter", "nbconvert", "ipykernel", "ipywidgets"]
+legacy = ["openpyxl", "scipy"]  # only for tools/convert_legacy_data.py
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/indflex"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
