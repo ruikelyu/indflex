@@ -10,27 +10,33 @@ import numpy as np
 from .solve import Result
 
 
-def plot_schedule(result: Result, price: Sequence[float], title: str = "", ax=None):
-    """Stacked hourly energy by stage, with the price on the right axis."""
+def plot_schedule(result: Result, price: Sequence[float], title: str = "", ax=None, dt: float = 1.0):
+    """Stacked energy per slot by stage, with the price on the right axis.
+
+    ``dt`` is the slot length in hours; the x axis is labelled in hours.
+    """
     if ax is None:
         _, ax = plt.subplots(figsize=(10, 3.8))
-    hours = np.arange(len(price))
+    hours = np.arange(len(price)) * dt
     if result.energy is not None:
         bottom = np.zeros(len(hours))
         cmap = plt.get_cmap("tab20")
         for k, (name, row) in enumerate(result.energy.iterrows()):
-            ax.bar(hours, row.to_numpy(), bottom=bottom, width=0.8, label=name, color=cmap(k % 20))
+            ax.bar(hours, row.to_numpy(), bottom=bottom, width=0.8 * dt, align="edge", label=name, color=cmap(k % 20))
             bottom += row.to_numpy()
         ax.legend(loc="center left", bbox_to_anchor=(1.08, 0.5), fontsize=8, frameon=False)
     else:
-        ax.bar(hours, result.load, width=0.8, color="tab:blue", label="total load")
+        ax.bar(hours, result.load, width=0.8 * dt, align="edge", color="tab:blue", label="total load")
     ax.set_xlabel("Hour")
-    ax.set_ylabel("Energy (kWh)")
+    ax.set_ylabel(f"Energy per slot ({result.energy_unit})")
     ax2 = ax.twinx()
-    ax2.plot(hours, price, color="black", lw=2, ls="--", label="price")
+    ax2.step(np.append(hours, hours[-1] + dt), np.append(price, price[-1]), where="post",
+             color="black", lw=1.8, ls="--", label="price")
     ax2.set_ylabel("Price ($/MWh)")
     ax.set_title(title or f"Cost ${result.cost:,.0f}")
-    ax.set_xticks(hours)
+    span = len(price) * dt
+    ax.set_xticks(np.arange(0, span + 1e-9, 1 if span <= 24 else 2))
+    ax.set_xlim(0, span)
     return ax
 
 
@@ -46,12 +52,14 @@ def plot_storage(result: Result, ax=None):
     return ax
 
 
-def plot_scaling(rows, time_limit: float | None = None, ax=None):
-    """Solve time vs. number of factories. ``rows``: dicts with model, n, seconds, status."""
+def plot_scaling(rows, time_limit: float | None = None, ax=None, xlabel: str = "Number of factories",
+                 log_x: bool = True):
+    """Solve time vs. problem size. ``rows``: dicts with model, n, seconds, status."""
     if ax is None:
         _, ax = plt.subplots(figsize=(6.5, 4))
-    styles = {"STN": dict(color="tab:red", marker="s"), "LSTN": dict(color="tab:blue", marker="o")}
-    for model in ["STN", "LSTN"]:
+    styles = {"STN": dict(color="tab:red", marker="s"), "LSTN": dict(color="tab:blue", marker="o"),
+              "RTN": dict(color="tab:red", marker="s"), "cRTN": dict(color="tab:blue", marker="o")}
+    for model in dict.fromkeys(r["model"] for r in rows):
         pts = [r for r in rows if r["model"] == model]
         if not pts:
             continue
@@ -62,9 +70,10 @@ def plot_scaling(rows, time_limit: float | None = None, ax=None):
                             xytext=(4, 6), fontsize=8, color=styles[model]["color"])
     if time_limit:
         ax.axhline(time_limit, color="grey", ls=":", lw=1)
-    ax.set_xscale("log")
+    if log_x:
+        ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("Number of factories")
+    ax.set_xlabel(xlabel)
     ax.set_ylabel("Solve time (s)")
     ax.legend()
     ax.grid(alpha=0.3, which="both")

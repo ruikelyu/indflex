@@ -173,7 +173,170 @@ viz.plot_scaling(rows, time_limit=TIME_LIMIT); plt.title("Solve time (HiGHS)"); 
 **Takeaways**
 * For continuous processes, the LSTN keeps the STN's material-flow logic but drops the binaries, so it scales to fleets.
 * Its cost is a lower bound on the STN's. For this plant it is within about 1% on every day of July 2022 (0.4% on average), and the hourly load profiles differ by about 4% on average.
-* Batch processes (e.g. steelmaking heats that cannot be interrupted) need more structure → **notebook 02: RTN vs. cRTN** *(coming next)*.
+* Batch processes (e.g. steelmaking heats that cannot be interrupted) need more structure → **notebook 02: RTN vs. cRTN** 
+"""),
+]
+
+NB02 = [
+    md(r"""
+# 02 · RTN vs. cRTN: scheduling a batch process (steelmaking)
+
+**Where this sits in the chain:** *process model* → parameter identification → dimension reduction → grid/aggregator optimization.
+
+Notebook 01 handled **continuous** processes. Many energy-intensive plants instead process discrete **batches** (in steelmaking, *heats*):
+
+* **Uninterruptible tasks:** once a heat starts melting in the electric arc furnace (EAF), it must finish.
+* **Waiting limits:** a hot heat may wait only so long before the next stage.
+* **Flexible power:** the EAF can melt faster at high power or slower at low power.
+
+This notebook compares two models of the same line:
+
+| | Conventional **RTN** (Zhang et al. 2017) | **cRTN** (this thesis) |
+|---|---|---|
+| Decision | binary: *does task i for heat h start in slot t?* | continuous: *how long does task i run at each operating point in slot t?* |
+| Grows with the number of heats? | yes, there is one set of tasks per heat | no, tasks are shared by all heats |
+| Task durations | rounded up to whole slots | exact (fractions of a slot) |
+
+*References:* thesis Ch. 2; R. Lyu et al., "Efficient Scheduling of Discrete Industrial Processes through Continuous Modeling," *IEEE Trans. Smart Grid*, in press; paper code: [Efficient-Scheduling-of-Discrete-Industrial-Processes](https://github.com/ruikelyu/Efficient-Scheduling-of-Discrete-Industrial-Processes). Plant data: X. Zhang et al., *IEEE Trans. Smart Grid* 8(1), 2017.
+"""),
+    code(r"""
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import indflex as fx
+from indflex import viz
+
+plt.rcParams["figure.dpi"] = 110
+"""),
+    md(r"""
+## 1. A one-furnace example: why rounding matters
+
+One EAF of 1 MW must melt **2 heats** in 6 hours. A heat takes 2 h at nominal power, and the furnace can run between 50% and 133% of nominal power, so a heat takes between 1.5 h and 4 h. Two 6-hour price profiles:
+"""),
+    code(r"""
+small = fx.load_batch_plant("eaf_small_case")
+scenarios = {"scenario 1": np.array([100, 100, 100, 100, 200, 200.]),
+             "scenario 2": np.array([100, 100, 100, 200, 200, 100.])}
+
+fig, axes = plt.subplots(2, 2, figsize=(11, 5.5), sharey=True)
+for col, (label, price) in enumerate(scenarios.items()):
+    for row, (name, build) in enumerate([("RTN", fx.build_rtn), ("cRTN", fx.build_crtn)]):
+        r = fx.solve(build(small, price, n_heats=2))
+        viz.plot_schedule(r, price, ax=axes[row, col],
+                          title=f"{label}, {name}: ${r.cost:,.2f} ({r.n_binary} binaries)")
+        axes[row, col].get_legend().remove()
+plt.tight_layout(); plt.show()
+"""),
+    md(r"""
+In **scenario 2**, the cheap hours are 0–2 and 5. The cRTN melts both heats at high power in the first three hours (1.5 h each, so two heats in 3 h) for **\$400**. The RTN can only start and finish tasks on slot boundaries: a 1.5 h melt is rounded up to 2 slots, so the second heat spills into an expensive hour and the cost rises to **\$466.67**. In the paper, this rounding error grows with the number of stages.
+
+## 2. The steelmaking line
+
+Four serial stages: EAF (85 MW, power-flexible 75–125%) → AOD → LF → continuous caster (CC). Use the sliders to change the day (PJM real-time prices, July 2022) and the number of heats. Both models are solved at **30-minute** slots so that each solve takes a few seconds.
+"""),
+    code(r"""
+steel = fx.load_batch_plant("steelmaking_zhang2017")
+pd.DataFrame([vars(s) for s in steel.stages]).rename(columns={
+    "power_mw": "power (MW)", "processing_min": "processing (min)",
+    "transfer_min": "transfer (min)", "max_wait_min": "max wait (min)"})
+"""),
+    code(r"""
+from ipywidgets import interact, IntSlider
+
+DT = 0.5  # hours per slot
+prices = fx.load_prices("2022-07")
+
+@interact(day=IntSlider(26, 1, 31, description="July day"), heats=IntSlider(2, 1, 3, description="heats"))
+def show(day, heats):
+    price = np.repeat(prices.iloc[day - 1].to_numpy(), int(1 / DT))
+    rtn = fx.solve(fx.build_rtn(steel, price, heats, dt=DT))
+    crtn = fx.solve(fx.build_crtn(steel, price, heats, dt=DT))
+    fig, axes = plt.subplots(2, 1, figsize=(11, 6), sharex=True)
+    viz.plot_schedule(rtn, price, dt=DT, ax=axes[0],
+                      title=f"RTN:  ${rtn.cost:,.0f}, {rtn.n_binary} binaries, {rtn.solve_seconds:.1f} s")
+    viz.plot_schedule(crtn, price, dt=DT, ax=axes[1],
+                      title=f"cRTN: ${crtn.cost:,.0f}, {crtn.n_binary} binaries, {crtn.solve_seconds:.1f} s")
+    plt.tight_layout(); plt.show()
+"""),
+    md(r"""
+## 3. Model size: binaries vs. the number of heats
+
+This is the core idea of the cRTN. The conventional RTN creates tasks and resources **for every heat**, so its binary variables grow with the production target. The cRTN shares one set of tasks across all heats and tracks *progress* with continuous variables, so its binary count does not depend on the number of heats.
+
+Counting variables only requires building the models, not solving them, so we can use the paper's **5-minute** resolution here:
+"""),
+    code(r"""
+price_5min = np.repeat(fx.daily_price("2022-07", 26), 12)
+rows = []
+for heats in range(1, 11):
+    for name, build in [("RTN", fx.build_rtn), ("cRTN", fx.build_crtn)]:
+        nb, nc = fx.count_vars(build(steel, price_5min, heats, dt=1 / 12))
+        rows.append({"model": name, "heats": heats, "binary": nb, "continuous": nc})
+size = pd.DataFrame(rows)
+display(size.pivot(index="heats", columns="model", values="binary"))
+
+ax = size.pivot(index="heats", columns="model", values="binary").plot(
+    marker="o", color={"RTN": "tab:red", "cRTN": "tab:blue"}, figsize=(6.5, 4))
+ax.set_ylabel("Binary variables"); ax.set_title("Steelmaking, 5-min slots (288 per day)")
+ax.set_ylim(0); ax.grid(alpha=0.3); plt.show()
+"""),
+    md(r"""
+## 4. Solve time as the number of heats grows
+
+Fewer binaries do not guarantee a faster solve on every small case. With 1–3 heats, the RTN is small too and often solves faster. The difference appears as the production target grows. The cell below solves both models with the free HiGHS solver at 30-minute slots for 1–6 heats (about 2 minutes in total; each solve is capped at `TIME_LIMIT`). In our runs on a laptop, the cRTN stays under about 10 s, while the RTN overtakes it at around 4 heats and reaches the time limit at 6. The RTN's schedules also cost 3–8% more, because task durations are rounded up to whole slots. (At 6 heats the RTN was stopped at the time limit, so part of that gap is unfinished optimization.)
+"""),
+    code(r"""
+TIME_LIMIT = 45
+HEATS = [1, 2, 3, 4, 6]
+price_30min = np.repeat(fx.daily_price("2022-07", 26), 2)
+
+rows = []
+for heats in HEATS:
+    for name, build in [("RTN", fx.build_rtn), ("cRTN", fx.build_crtn)]:
+        r = fx.solve(build(steel, price_30min, heats, dt=0.5), time_limit=TIME_LIMIT)
+        rows.append({"model": name, "n": heats, "seconds": r.solve_seconds, "status": r.status,
+                     "binaries": r.n_binary, "cost": r.cost})
+        print(f"{name:4s} heats={heats}: {r.status:10s} {r.solve_seconds:5.1f} s, cost ${r.cost:,.0f}")
+
+timing = pd.DataFrame(rows)
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+viz.plot_scaling(rows, time_limit=TIME_LIMIT, ax=axes[0], xlabel="Number of heats", log_x=False)
+axes[0].set_title("Solve time (HiGHS, 30-min slots)")
+gap = timing.pivot(index="n", columns="model", values="cost")
+(100 * (gap["RTN"] - gap["cRTN"]) / gap["cRTN"]).plot.bar(ax=axes[1], color="tab:grey")
+axes[1].set_ylabel("RTN cost above cRTN (%)"); axes[1].set_xlabel("Number of heats")
+axes[1].set_title("Cost of rounding task durations to whole slots")
+plt.tight_layout(); plt.show()
+"""),
+    md(r"""
+**At the paper's scale.** The thesis uses 5-minute slots, Gurobi, and up to 8 heats. There, the RTN's solve time grows roughly exponentially with the number of heats while the cRTN's grows roughly linearly; for 8 heats, the mean solve time over 15 July days falls from **156.7 to 17.1 minutes (−89%)**. This is a different test case from the LSTN scaling result in notebook 01. To try it yourself with Gurobi (`pip install gurobipy` plus a license), set `RUN_GUROBI = True`. Expect minutes per solve.
+"""),
+    code(r"""
+RUN_GUROBI = False
+
+if RUN_GUROBI:
+    price_5min = np.repeat(fx.daily_price("2022-07", 26), 12)
+    for heats in [2, 4, 8]:
+        for name, build in [("RTN", fx.build_rtn), ("cRTN", fx.build_crtn)]:
+            r = fx.solve(build(steel, price_5min, heats, dt=1 / 12), solver="gurobi", mip_gap=1e-4, time_limit=1800)
+            print(f"{name:4s} heats={heats}: {r.summary()}")
+"""),
+    md(r"""
+## 5. How the cRTN relates to the LSTN
+
+Both models replace **"which state is the machine in during this slot?"** (binary) with **"how long does it spend in each state?"** (continuous). For continuous processes that removes every binary (LSTN). Batch processes still need a few status binaries for the uninterruptible and waiting logic, but no longer one per heat (cRTN). In the thesis (Ch. 2 §2.5.5), the STN is shown to be a special case of the RTN, and the LSTN a special case of the cRTN.
+
+## 6. Things to try
+
+1. Make the EAF inflexible: `dataclasses.replace(steel, power_ratio=(1.0, 1.0))`. How much of the cost saving disappears?
+2. Change `DT` in Section 2 to `0.25`. The RTN's rounding error shrinks, but its model grows.
+3. Tighten the waiting limit of the LF stage and watch the schedule compress.
+
+**Takeaways**
+* The cRTN keeps the batch logic (uninterruptible melting, waiting limits) but its size does not grow with the number of heats.
+* It avoids the RTN's rounding of task durations to whole slots, which changes the cost even in a one-furnace example.
+* The cRTN reduces binaries; it does not remove them all. Its solve-time advantage is a statement about growing problems (many heats, fine slots), not every small case.
+* Next in the chain: what if we *don't know* the plant's parameters? → **notebook 03: parameter identification (PSI)**.
 """),
 ]
 
@@ -181,10 +344,11 @@ viz.plot_scaling(rows, time_limit=TIME_LIMIT); plt.title("Solve time (HiGHS)"); 
 def main():
     out = ROOT / "notebooks"
     out.mkdir(exist_ok=True)
-    nb = nbf.v4.new_notebook(cells=NB01)
-    nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
-    nbf.write(nb, out / "01_stn_vs_lstn.ipynb")
-    print("wrote notebooks/01_stn_vs_lstn.ipynb")
+    for fname, cells in [("01_stn_vs_lstn.ipynb", NB01), ("02_rtn_vs_crtn.ipynb", NB02)]:
+        nb = nbf.v4.new_notebook(cells=cells)
+        nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
+        nbf.write(nb, out / fname)
+        print(f"wrote notebooks/{fname}")
 
 
 if __name__ == "__main__":

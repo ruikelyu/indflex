@@ -87,8 +87,21 @@ def build_stn(plant: Plant, price: Sequence[float], dt: float = 1.0, relax: bool
     m.net_load = pyo.Expression(m.T, rule=lambda m, t: m.plant.net_load[t])
     # kWh * $/MWh / 1000 = $
     m.cost = pyo.Objective(expr=sum(price[t] / 1000 * m.net_load[t] for t in m.T))
-    m._meta = {"kind": "lstn" if relax else "stn", "plants": [plant], "price": price, "dt": dt}
+    m._meta = {"kind": "lstn" if relax else "stn", "plants": [plant], "price": price, "dt": dt,
+               "detail": _single_plant_detail}
     return m
+
+
+def _single_plant_detail(m):
+    """Energy and buffer level per stage (rows), for single-plant models."""
+    import pandas as pd
+
+    plant = m._meta["plants"][0]
+    names = [f"{k + 1}. {s.name}" for k, s in enumerate(plant.stages)]  # unique even if names repeat
+    T, N = list(m.T), range(plant.n_stages)
+    energy = pd.DataFrame([[pyo.value(m.plant.E[n, t]) for t in T] for n in N], index=names, columns=T)
+    storage = pd.DataFrame([[pyo.value(m.plant.S[n, t]) for t in range(len(T) + 1)] for n in N], index=names)
+    return energy, storage
 
 
 def build_lstn(plant: Plant, price: Sequence[float], dt: float = 1.0) -> pyo.ConcreteModel:

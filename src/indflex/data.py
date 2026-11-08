@@ -69,6 +69,8 @@ def load_plant(name_or_path: str | Path) -> Plant:
     if not path.suffix:
         path = DATA_DIR / "plants" / f"{name_or_path}.yaml"
     raw = yaml.safe_load(path.read_text())
+    if raw.get("kind") == "batch":
+        raise ValueError(f"{path.name} is a batch plant; use load_batch_plant()")
     stages = tuple(
         Stage(
             name=s["name"],
@@ -85,6 +87,53 @@ def load_plant(name_or_path: str | Path) -> Plant:
         description=raw.get("description", ""),
         source=raw.get("source", ""),
         units=raw.get("units", {}),
+    )
+
+
+@dataclass(frozen=True)
+class BatchStage:
+    """One stage of a batch line (e.g. EAF, AOD, LF, CC)."""
+
+    name: str
+    power_mw: float  # nominal power while processing
+    processing_min: float  # processing time of one heat
+    transfer_min: float = 0.0  # time to move a heat to the next stage
+    max_wait_min: float = 0.0  # longest a heat may wait before the next stage
+
+
+@dataclass(frozen=True)
+class BatchPlant:
+    """A serial batch line processing discrete heats.
+
+    ``power_ratio`` = (low, high) power of the flexible first stage relative to
+    nominal; melting at lower power takes proportionally longer.
+    """
+
+    name: str
+    stages: tuple[BatchStage, ...]
+    power_ratio: tuple[float, float] = (1.0, 1.0)
+    description: str = ""
+    source: str = ""
+
+    @property
+    def n_stages(self) -> int:
+        return len(self.stages)
+
+
+def load_batch_plant(name_or_path: str | Path) -> BatchPlant:
+    """Load a batch line from ``data/plants/<name>.yaml`` (``kind: batch``)."""
+    path = Path(name_or_path)
+    if not path.suffix:
+        path = DATA_DIR / "plants" / f"{name_or_path}.yaml"
+    raw = yaml.safe_load(path.read_text())
+    if raw.get("kind") != "batch":
+        raise ValueError(f"{path.name} is not a batch plant; use load_plant()")
+    return BatchPlant(
+        name=raw.get("name", path.stem),
+        stages=tuple(BatchStage(**s) for s in raw["stages"]),
+        power_ratio=tuple(raw.get("power_ratio", (1.0, 1.0))),
+        description=raw.get("description", ""),
+        source=raw.get("source", ""),
     )
 
 

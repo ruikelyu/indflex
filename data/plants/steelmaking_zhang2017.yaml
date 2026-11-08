@@ -1,0 +1,11 @@
+# Converted from RTN_Implementation/load_parameters_zhang_rtn.xlsx
+name: steelmaking_zhang2017
+kind: batch
+description: Secondary steelmaking line with a power-flexible electric arc furnace (EAF), 4 serial stages.
+source: X. Zhang, G. Hug, I. Harjunkoski, 'Cost-Effective Scheduling of Steel Plants With Flexible EAFs', IEEE Trans. Smart Grid 8(1), 2017.
+power_ratio: [0.75, 1.25]   # EAF can melt at 75-125% of nominal power
+stages:
+- {name: EAF, power_mw: 85, processing_min: 80, transfer_min: 10, max_wait_min: 120}
+- {name: AOD, power_mw: 2, processing_min: 75, transfer_min: 5, max_wait_min: 120}
+- {name: LF, power_mw: 2, processing_min: 35, transfer_min: 10, max_wait_min: 120}
+- {name: CC, power_mw: 7, processing_min: 50, transfer_min: 0, max_wait_min: 0}

@@ -1,0 +1,9 @@
+# Small illustrative case from the cRTN paper repository
+# (Efficient-Scheduling-of-Discrete-Industrial-Processes/parameter_setting/load_parameters_small_case.xlsx)
+name: eaf_small_case
+kind: batch
+description: One flexible EAF, 2-hour heats; used to illustrate RTN vs. cRTN over a 6-hour horizon.
+source: R. Lyu et al., 'Efficient Scheduling of Discrete Industrial Processes through Continuous Modeling', IEEE Trans. Smart Grid, in press.
+power_ratio: [0.5, 1.33334]
+stages:
+- {name: EAF, power_mw: 1, processing_min: 120, transfer_min: 60, max_wait_min: 120}
