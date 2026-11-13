@@ -1,10 +1,12 @@
-"""A tiny framework for narrated explainer videos (matplotlib frames + macOS speech + ffmpeg).
+"""A tiny framework for narrated explainer videos (matplotlib frames + neural speech + ffmpeg).
 
 A video is a list of scenes. Each scene has narration (a list of sentences) and a
 ``draw(fig, t)`` function, where ``t`` runs from 0 to 1 over the scene. Every sentence is
-spoken separately with the macOS ``say`` command, so captions are timed exactly.
+spoken separately, so captions are timed exactly. The default voice is Kokoro ``af_heart``
+(see kokoro_tts.py); ``--engine say`` uses the macOS ``say`` command instead.
 
-    python tools/videos/lstn.py OUT_DIR [--voice Samantha] [--rate 175]
+    python tools/videos/lstn.py OUT_DIR [--voice af_heart] [--speed 1.0]
+    python tools/videos/lstn.py OUT_DIR --engine say [--voice Samantha] [--rate 175]
 
 Outputs ``OUT_DIR/<name>.mp4`` (1920x1080, H.264/AAC) and ``OUT_DIR/<name>.srt`` (captions).
 """
@@ -12,8 +14,12 @@ Outputs ``OUT_DIR/<name>.mp4`` (1920x1080, H.264/AAC) and ``OUT_DIR/<name>.srt``
 from __future__ import annotations
 
 import argparse
+import importlib.util
+import json
 import math
+import os
 import subprocess
+import sys
 import tempfile
 import textwrap
 from collections.abc import Callable
@@ -136,11 +142,35 @@ def draw_caption(fig, text: str):
 
 
 # ------------------------------------------------------------------ rendering
-def speak(text: str, path: Path, voice: str, rate: int) -> float:
-    subprocess.run(["say", "-v", voice, "-r", str(rate), "-o", str(path), text], check=True)
+def _duration(path: Path) -> float:
     out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
                          check=True, capture_output=True, text=True)
     return float(out.stdout.strip())
+
+
+def _kokoro_python() -> str:
+    """Interpreter with ``kokoro`` installed: $KOKORO_PYTHON, this one, or ~/.venvs/kokoro."""
+    if os.environ.get("KOKORO_PYTHON"):
+        return os.environ["KOKORO_PYTHON"]
+    if importlib.util.find_spec("kokoro"):
+        return sys.executable
+    venv = Path.home() / ".venvs" / "kokoro" / "bin" / "python"
+    if venv.exists():
+        return str(venv)
+    raise SystemExit("Kokoro not found. Install it (see tools/videos/README.md), set KOKORO_PYTHON, or use --engine say.")
+
+
+def synthesize(clips: list[tuple[str, Path]], engine: str, voice: str, rate: int, speed: float) -> list[float]:
+    """Speak each (text, path) clip to its file; return the durations in seconds."""
+    if engine == "say":
+        for text, path in clips:
+            subprocess.run(["say", "-v", voice, "-r", str(rate), "-o", str(path), text], check=True)
+    else:
+        jobs = Path(clips[0][1]).parent / "kokoro_jobs.json"
+        jobs.write_text(json.dumps([{"text": t, "path": str(p)} for t, p in clips]))
+        subprocess.run([_kokoro_python(), str(Path(__file__).with_name("kokoro_tts.py")), str(jobs),
+                        "--voice", voice, "--speed", str(speed)], check=True)
+    return [_duration(p) for _, p in clips]
 
 
 def _srt_time(s: float) -> str:
@@ -149,21 +179,27 @@ def _srt_time(s: float) -> str:
     return f"{int(h):02d}:{int(m):02d}:{int(sec):02d},{int(round((sec % 1) * 1000)):03d}"
 
 
-def render(video: Video, out_dir: Path, voice: str = "Samantha", rate: int = 175, captions: bool = True) -> Path:
+def render(video: Video, out_dir: Path, voice: str = "af_heart", rate: int = 175, captions: bool = True,
+           engine: str = "kokoro", speed: float = 1.0) -> Path:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix=f"{video.name}_"))
     fig = plt.figure(figsize=(W / 100, H / 100), dpi=100)
     srt, clock, parts = [], 0.0, []
 
+    # 0. speak every sentence of the video in one batch
+    ext = ".aiff" if engine == "say" else ".wav"
+    clips = {(si, k): ((item[1] if isinstance(item, tuple) else item), work / f"s{si:02d}_{k:02d}{ext}")
+             for si, scene in enumerate(video.scenes) for k, item in enumerate(scene.narration)}
+    durations = dict(zip(clips, synthesize(list(clips.values()), engine, voice, rate, speed)))
+
     for si, scene in enumerate(video.scenes):
         # 1. narration: one audio clip per sentence, with pauses, joined into one track
         timeline, wavs = [], []
         t0 = 0.0
         for k, item in enumerate(scene.narration):
-            sentence, spoken = item if isinstance(item, tuple) else (item, item)
-            wav = work / f"s{si:02d}_{k:02d}.aiff"
-            dur = speak(spoken, wav, voice, rate)
+            sentence = item[0] if isinstance(item, tuple) else item
+            wav, dur = clips[(si, k)][1], durations[(si, k)]
             timeline.append((t0, t0 + dur, sentence))
             wavs.append((wav, dur))
             t0 += dur + scene.pad
@@ -174,7 +210,9 @@ def render(video: Video, out_dir: Path, voice: str = "Samantha", rate: int = 175
             inputs += ["-i", str(wav)]
             filters.append(f"[{k}:a]aresample=44100,apad=pad_dur={scene.pad}[a{k}]")
         concat = "".join(f"[a{k}]" for k in range(len(wavs)))
-        filters.append(f"{concat}concat=n={len(wavs)}:v=0:a=1,apad=whole_dur={total}[out]")
+        # loudness-normalize to -16 LUFS (YouTube plays at about -14), then back to 44.1 kHz
+        filters.append(f"{concat}concat=n={len(wavs)}:v=0:a=1,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=44100,"
+                       f"apad=whole_dur={total}[out]")
         subprocess.run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", ";".join(filters), "-map", "[out]",
                         "-ac", "2", str(audio)], check=True)
 
@@ -231,11 +269,14 @@ def render(video: Video, out_dir: Path, voice: str = "Samantha", rate: int = 175
 def main(video_factory: Callable[[], Video]):
     ap = argparse.ArgumentParser()
     ap.add_argument("out_dir")
-    ap.add_argument("--voice", default="Samantha")
-    ap.add_argument("--rate", type=int, default=175)
+    ap.add_argument("--engine", choices=["kokoro", "say"], default="kokoro")
+    ap.add_argument("--voice", help="Kokoro voice (default af_heart) or macOS voice (default Samantha)")
+    ap.add_argument("--speed", type=float, default=1.0, help="Kokoro speaking speed")
+    ap.add_argument("--rate", type=int, default=175, help="macOS say rate, words per minute")
     ap.add_argument("--no-captions", action="store_true")
     args = ap.parse_args()
-    render(video_factory(), Path(args.out_dir), args.voice, args.rate, not args.no_captions)
+    voice = args.voice or ("Samantha" if args.engine == "say" else "af_heart")
+    render(video_factory(), Path(args.out_dir), voice, args.rate, not args.no_captions, args.engine, args.speed)
 
 
 __all__ = ["Scene", "Video", "render", "main", "plain_log_axes", "ease", "stage", "heading", "footer", "bullet_list", "title_card",

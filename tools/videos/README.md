@@ -4,25 +4,32 @@ One short (~2 minute) narrated video per paper in the chain. Every chart is draw
 
 | Script | Video | Published |
 |---|---|---|
-| `lstn.py` | LSTN: a linear model of industrial production for demand response | [YouTube](https://youtu.be/wMm-IgvIvhM) |
-| `crtn.py` | cRTN: efficient scheduling of discrete industrial processes through continuous modeling | [YouTube](https://youtu.be/RATnHWVbLwY) |
-| `psi.py` | PSI: production scheduling identification from smart meter data (needs Gurobi) | [YouTube](https://youtu.be/gpxkEAigneE) |
-| `d3r.py` | D3R: data-driven dimension reduction for industrial load modeling | [YouTube](https://youtu.be/ClJwRWYXZfI) |
-| `vpp.py` | Real-time operation of virtual power plants with optimal power disaggregation | [YouTube](https://youtu.be/dFsv5i7JZIM) |
+| `lstn.py` | LSTN: a linear model of industrial production for demand response | [YouTube](https://youtu.be/QwHTS2DnenQ) |
+| `crtn.py` | cRTN: efficient scheduling of discrete industrial processes through continuous modeling | [YouTube](https://youtu.be/TZ0LXch5aPw) |
+| `psi.py` | PSI: production scheduling identification from smart meter data (needs Gurobi) | [YouTube](https://youtu.be/zhWvC3sqh4s) |
+| `d3r.py` | D3R: data-driven dimension reduction for industrial load modeling | [YouTube](https://youtu.be/tLNliWvT6i8) |
+| `vpp.py` | Real-time operation of virtual power plants with optimal power disaggregation | [YouTube](https://youtu.be/uDk0lgekcLo) |
 
 ## Rendering
 
-Requires macOS (the narration uses the `say` command) and `ffmpeg`.
+Requires `ffmpeg`. The narration uses the [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) neural voice `af_heart` by default. Kokoro needs PyTorch, so install it in its own environment; the scripts find it at `~/.venvs/kokoro` or through `KOKORO_PYTHON`:
 
 ```bash
-python tools/videos/lstn.py OUT_DIR                     # default voice: Samantha, 175 words/min
-python tools/videos/lstn.py OUT_DIR --voice "Ava (Premium)" --rate 170
+uv venv ~/.venvs/kokoro --python 3.12
+uv pip install --python ~/.venvs/kokoro/bin/python "kokoro>=0.9.4" soundfile \
+  "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+```
+
+The model (about 330 MB) downloads from Hugging Face on first use. Then:
+
+```bash
+python tools/videos/lstn.py OUT_DIR                     # Kokoro af_heart, normal speed
+python tools/videos/lstn.py OUT_DIR --voice af_bella --speed 1.05
+python tools/videos/lstn.py OUT_DIR --engine say --voice "Ava (Premium)" --rate 170   # macOS voice, no Kokoro
 python tools/videos/lstn.py OUT_DIR --no-captions
 ```
 
-Each script writes `OUT_DIR/<name>.mp4` (1920×1080, H.264/AAC), `<name>.srt` (captions, for YouTube) and `<name>_script.md` (the narration). The LSTN video measures solve times while rendering, so run it on an idle machine.
-
-**Better voices.** The built-in compact voices sound robotic. Free higher-quality voices are available in *System Settings → Accessibility → Spoken Content → System Voice → Manage Voices* (for example "Ava (Premium)" or "Zoe (Premium)"); list installed voices with `say -v '?'`.
+Each script writes `OUT_DIR/<name>.mp4` (1920×1080, H.264/AAC, loudness-normalized to −16 LUFS), `<name>.srt` (captions, for YouTube) and `<name>_script.md` (the narration). All sentences of a video are voiced in one batch, so the model loads once. The LSTN video measures solve times while rendering, so run it on an idle machine.
 
 ## How it works
 
